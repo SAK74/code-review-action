@@ -1,0 +1,19 @@
+{
+  "name": "code-review",
+  "version": "1.0.0",
+  "description": "gh action to code pr code review",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "tsc & node dist/index.js",
+    "dev": "ts-node index.js"
+  },
+  "author": "SAK74",
+  "license": "ISC",
+  "dependencies": {
+    "typescript": "^5.6.3"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  }
+}
