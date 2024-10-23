@@ -3,12 +3,13 @@ import { resolve } from "node:path";
 
 import aiClient from "./aiClient";
 
-console.log("Hello!");
-
 async function main() {
-  const res = await aiClient(resolve(__dirname, "./diff.txt"));
-
-  console.log("Result: ", res);
+  try {
+    const res = await aiClient(resolve(__dirname, "./diff.txt"));
+    console.log("Result: ", res);
+  } catch (error) {
+    console.error("Error in main function:", error);
+  }
 }
 
 main();
