@@ -1,6 +1,11 @@
-import "dotenv/config";
+// import "dotenv/config";
+import core from "@actions/core";
 
 import aiClient from "./src/aiClient";
+
+// const openapiKey = core.getInput('OPENAI_API_KEY')
+// const env = process.env;
+// console.log({ env });
 
 async function main() {
   try {
@@ -11,4 +16,4 @@ async function main() {
   }
 }
 
-main();
+// main();

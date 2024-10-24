@@ -1,0 +1,32 @@
+name: AI Code-Review
+author: SAK74
+description: Conduct code-review by AI based on git diff
+inputs:
+  OPENAI_API_KEY:
+    required: true
+    description: OPENAI_API_KEY
+runs:
+  using: composite
+  steps:
+    - name: Test
+      run: echo 'Test message'
+      shell: bash
+
+    # - name: Checkout repo
+    #   uses: actions/checkout@v4
+
+    - name: Check env
+      run: npm run env
+      shell: bash
+
+    - name: Get package.json data
+      run: node -e "console.log(require('./package.json'))"
+      shell: bash
+
+    # - name: Install dependenties
+    #   run: npm i --omit=dev
+    #   shell: bash
+
+    # - name: Conduct review
+    #   run: npm start
+    #   shell: bash
