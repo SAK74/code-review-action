@@ -1,0 +1,74 @@
+diff --git a/.gitignore b/.gitignore
+index b9d495c..e343437 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,6 +1,4 @@
+ node_modules
+ dist
+ 
+-.env*
+-diff.txt
+-suggestions
+\ No newline at end of file
++.env*
+\ No newline at end of file
+diff --git a/aiClient.ts b/aiClient.ts
+index c7f59a0..f2d56bc 100644
+--- a/aiClient.ts
++++ b/aiClient.ts
+@@ -3,12 +3,6 @@ import { generateText } from "ai";
+ import { readFileSync } from "node:fs";
+ 
+ export default async function main(diffFileURL: string) {
+-  if (!diffFileURL) {
+-    throw Error("No diff file url provided..!");
+-  }
+-  if (!process.env.OPENAI_API_KEY) {
+-    throw Error("No OPENAI_API_KEY provided..!");
+-  }
+   const modelOpenAI = openai("gpt-4o-mini");
+   // const modelAnthropic = anthropic("claude-3-haiku-20240307");
+ 
+@@ -20,13 +14,12 @@ export default async function main(diffFileURL: string) {
+     encoding: "utf-8",
+   }).toString();
+ 
+-  let diffContent: string;
+-  try {
+-    diffContent = readFileSync(diffFileURL).toString();
+-  } catch (err) {
+-    console.error("Error reading diff file:", err);
+-    throw Error((err as Error).message);
+-  }
++  // console.log("Path: ", diffFileURL);
++  const diffContent = readFileSync(diffFileURL).toString();
++  // console.log({ diff });
++
++  // console.log({ assistantDescription });
++  // console.log({ prompt });
+ 
+   console.log("Start ai communication...");
+ 
+diff --git a/index.ts b/index.ts
+index 8a0073d..55b3d93 100644
+--- a/index.ts
++++ b/index.ts
+@@ -3,13 +3,12 @@ import { resolve } from "node:path";
+ 
+ import aiClient from "./aiClient";
+ 
++console.log("Hello!");
++
+ async function main() {
+-  try {
+-    const res = await aiClient(resolve(__dirname, "./diff.txt"));
+-    console.log("Result: ", res);
+-  } catch (error) {
+-    console.error("Error in main function:", error);
+-  }
++  const res = await aiClient(resolve(__dirname, "./diff.txt"));
++
++  console.log("Result: ", res);
+ }
+ 
+ main();
