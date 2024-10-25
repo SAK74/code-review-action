@@ -7,7 +7,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: echo ${{github.event.pull_request}}
+      - run: echo ${{github.event.pull_request.diff_url}}
       # - run: echo ${{job.status}}
 
       # - run: ${{github.event}}
