@@ -1,0 +1,52 @@
+name: AI Code-Review
+author: SAK74
+description: Conduct code-review by AI based on git diff
+inputs:
+  OPENAI_API_KEY:
+    required: true
+    description: OPENAI_API_KEY
+runs:
+  using: composite
+  steps:
+    - name: Test
+      run: echo 'Test message'
+      shell: bash
+
+    # - name: Checkout repo
+    #   uses: actions/checkout@v4
+
+    - name: Check env
+      run: npm run env
+      shell: bash
+
+    # - name: Node setup
+    #   uses: actions/setup-node@v4
+    #   with:
+    #     node-version: 20.x
+
+    # works !
+    # - name: Get access to gh event
+    #   run: cat ${GITHUB_EVENT_PATH}
+    #   shell: bash
+
+    # - name: Get package.json data
+    #   # run: node -e "console.log(require('./package.json'))"
+    #   run: cat ${npm_package_json}
+    #   shell: bash
+
+    # works!!!
+    # - name: Get file content
+    #   run: cat ${GITHUB_ACTION_PATH}/diff.txt
+    #   shell: bash
+
+    - name: Get access to pr
+      run: echo "event.pull_request ${{github.event.pull_request}}"
+      shell: bash
+
+    # - name: Install dependenties
+    #   run: npm i --omit=dev
+    #   shell: bash
+
+    # - name: Conduct review
+    #   run: npm start
+    #   shell: bash

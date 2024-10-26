@@ -1,11 +1,18 @@
 // import "dotenv/config";
-import core from "@actions/core";
+// import { getInput } from "@actions/core";
+import { context, getOctokit } from "@actions/github";
 
-import aiClient from "./src/aiClient";
+import { version } from "node:process";
+
+import aiClient from "./aiClient";
 
 // const openapiKey = core.getInput('OPENAI_API_KEY')
 // const env = process.env;
 // console.log({ env });
+
+console.log("Hello from index.js!!!");
+console.log({ version });
+console.log({ context });
 
 async function main() {
   try {
