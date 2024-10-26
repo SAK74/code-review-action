@@ -5,6 +5,7 @@ import { context, getOctokit } from "@actions/github";
 import { version } from "node:process";
 
 import aiClient from "./aiClient";
+import { getDiffContent } from "./getDiff";
 
 // const openapiKey = core.getInput('OPENAI_API_KEY')
 // const env = process.env;
@@ -13,6 +14,9 @@ import aiClient from "./aiClient";
 console.log("Hello from index.js!!!");
 console.log({ version });
 console.log({ context });
+
+const diffContent = getDiffContent();
+console.log({ diffContent });
 
 async function main() {
   try {

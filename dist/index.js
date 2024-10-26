@@ -34689,6 +34689,37 @@ function main(diffFileURL) {
 
 /***/ }),
 
+/***/ 3300:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getDiffContent = getDiffContent;
+const github_1 = __nccwpck_require__(3228);
+const node_https_1 = __nccwpck_require__(4708);
+function getDiffContent() {
+    var _a;
+    const diffUrl = (_a = github_1.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.diff_url;
+    if (!diffUrl) {
+        throw Error("Can't access to diff url!!!");
+    }
+    let diffContent = "";
+    (0, node_https_1.get)(diffUrl, (resp) => {
+        resp.on("data", (data) => {
+            diffContent += data;
+        });
+        resp.on("error", (err) => {
+            console.error("Error in read diff content: ", err.message);
+            throw Error(err.message);
+        });
+    });
+    return diffContent;
+}
+
+
+/***/ }),
+
 /***/ 9407:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -34712,12 +34743,15 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 const github_1 = __nccwpck_require__(3228);
 const node_process_1 = __nccwpck_require__(1708);
 const aiClient_1 = __importDefault(__nccwpck_require__(5366));
+const getDiff_1 = __nccwpck_require__(3300);
 // const openapiKey = core.getInput('OPENAI_API_KEY')
 // const env = process.env;
 // console.log({ env });
 console.log("Hello from index.js!!!");
 console.log({ version: node_process_1.version });
 console.log({ context: github_1.context });
+const diffContent = (0, getDiff_1.getDiffContent)();
+console.log({ diffContent });
 function main() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
@@ -34843,6 +34877,14 @@ module.exports = require("node:events");
 
 "use strict";
 module.exports = require("node:fs");
+
+/***/ }),
+
+/***/ 4708:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:https");
 
 /***/ }),
 
