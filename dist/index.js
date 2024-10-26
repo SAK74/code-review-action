@@ -27483,31 +27483,41 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getDiffContent = getDiffContent;
 const github_1 = __nccwpck_require__(3228);
 const node_https_1 = __nccwpck_require__(4708);
+function fetchWithRedirect(url, resolve, reject, redirectCount = 0) {
+    if (redirectCount > 2) {
+        reject("To many redirects!!!");
+    }
+    (0, node_https_1.get)(url, (resp) => {
+        // resp.setEncoding("utf-8");
+        if (resp.statusCode === 302 && resp.headers.location) {
+            fetchWithRedirect(resp.headers.location, resolve, reject, redirectCount + 1);
+            return;
+        }
+        let diffContent = "";
+        resp.on("data", (data) => {
+            diffContent += data;
+        });
+        resp.on("end", () => {
+            resolve(diffContent);
+        });
+        resp.on("error", (err) => {
+            console.error("Error in read diff content: ", err.message);
+            reject(err.message);
+        });
+    }).on("error", (err) => {
+        console.error("Error in read diff content: ", err.message);
+        reject(err.message);
+    });
+}
 function getDiffContent() {
     var _a;
     const diffUrl = (_a = github_1.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.diff_url;
     if (!diffUrl) {
         throw Error("Can't access to diff url!!!");
     }
-    console.log({ diffUrl });
     return new Promise((resolve, reject) => {
-        let diffContent = "";
-        (0, node_https_1.get)(diffUrl, (resp) => {
-            resp.on("data", (data) => {
-                diffContent += data;
-            });
-            resp.on("end", () => {
-                resolve(diffContent);
-            });
-            resp.on("error", (err) => {
-                console.error("Error in read diff content: ", err.message);
-                reject(err.message);
-            });
-        }).on("error", (err) => {
-            reject(err.message);
-        });
+        fetchWithRedirect(diffUrl, resolve, reject);
     });
-    // return diffContent;
 }
 
 
@@ -27518,6 +27528,8 @@ function getDiffContent() {
 
 "use strict";
 
+// import { getInput } from "@actions/core";
+// import { context, getOctokit } from "@actions/github";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -27528,19 +27540,15 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-// import "dotenv/config";
-// import { getInput } from "@actions/core";
-const github_1 = __nccwpck_require__(3228);
-const node_process_1 = __nccwpck_require__(1708);
 const getDiff_1 = __nccwpck_require__(3300);
 // const openapiKey = core.getInput('OPENAI_API_KEY')
 // const env = process.env;
 // console.log({ env });
-console.log("Hello from index.js!!!");
-console.log({ version: node_process_1.version });
-console.log({ context: github_1.context });
+// console.log({ version });
+// console.log({ context });
 function main() {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         try {
             const diffContent = yield (0, getDiff_1.getDiffContent)();
             console.log({ diffContent });
@@ -27548,7 +27556,7 @@ function main() {
             // console.log("Result: ", res);
         }
         catch (error) {
-            console.error("Error in main function:", error);
+            console.error("Error in main function:", (_a = error === null || error === void 0 ? void 0 : error.message) !== null && _a !== void 0 ? _a : "Unknown error");
         }
     });
 }
@@ -27666,14 +27674,6 @@ module.exports = require("node:events");
 
 "use strict";
 module.exports = require("node:https");
-
-/***/ }),
-
-/***/ 1708:
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("node:process");
 
 /***/ }),
 
