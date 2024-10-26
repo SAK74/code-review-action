@@ -15,16 +15,16 @@ console.log("Hello from index.js!!!");
 console.log({ version });
 console.log({ context });
 
-const diffContent = getDiffContent();
-console.log({ diffContent });
-
 async function main() {
   try {
-    const res = await aiClient("./diff.txt");
-    console.log("Result: ", res);
+    const diffContent = await getDiffContent();
+    console.log({ diffContent });
+
+    // const res = await aiClient("./diff.txt");
+    // console.log("Result: ", res);
   } catch (error) {
     console.error("Error in main function:", error);
   }
 }
 
-// main();
+main();

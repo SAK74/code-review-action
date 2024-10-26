@@ -6,16 +6,25 @@ export function getDiffContent() {
   if (!diffUrl) {
     throw Error("Can't access to diff url!!!");
   }
-  let diffContent = "";
-  get(diffUrl, (resp) => {
-    resp.on("data", (data) => {
-      diffContent += data;
-    });
-    resp.on("error", (err) => {
-      console.error("Error in read diff content: ", err.message);
-      throw Error(err.message);
+  console.log({ diffUrl });
+
+  return new Promise<string>((resolve, reject) => {
+    let diffContent = "";
+    get(diffUrl, (resp) => {
+      resp.on("data", (data) => {
+        diffContent += data;
+      });
+      resp.on("end", () => {
+        resolve(diffContent);
+      });
+      resp.on("error", (err) => {
+        console.error("Error in read diff content: ", err.message);
+        reject(err.message);
+      });
+    }).on("error", (err) => {
+      reject(err.message);
     });
   });
 
-  return diffContent;
+  // return diffContent;
 }
