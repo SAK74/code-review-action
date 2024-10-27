@@ -1,6 +1,8 @@
 import { openai } from "@ai-sdk/openai";
 import { generateText } from "ai";
 import { readFileSync } from "node:fs";
+import assistantDescription from "./helpers/assistant-description";
+import prompt from "./helpers/prompt";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -16,34 +18,27 @@ export default async function main(diffFileURL: string) {
   const modelOpenAI = openai("gpt-4o-mini");
   // const modelAnthropic = anthropic("claude-3-haiku-20240307");
 
-  const assistantDescription = readFileSync(
-    "./helpers/assistant-description.txt",
-    { encoding: "utf-8" }
-  ).toString();
-  const prompt = readFileSync("./helpers/prompt.txt", {
-    encoding: "utf-8",
-  }).toString();
-
-  console.log("Openapi key: ", OPENAI_API_KEY);
-
-  // console.log({ assistantDescription, prompt });
-
   let diffContent: string;
   try {
-    diffContent = readFileSync(diffFileURL).toString();
+    diffContent = readFileSync(diffFileURL).toString("utf-8");
   } catch (err) {
     console.error("Error reading diff file:", err);
     throw Error((err as Error).message);
   }
 
-  console.log("Start ai communication...");
+  console.log("Openapi key: ", OPENAI_API_KEY);
 
-  const { text, usage } = await generateText({
-    model: modelOpenAI,
-    system: assistantDescription,
-    prompt: `${prompt}\n\nHere is the diff file content:\n${diffContent}`,
-  });
+  console.log({ assistantDescription, prompt });
+  console.log({ diffContent });
 
-  console.log({ usage });
-  return text;
+  // console.log("Start ai communication...");
+
+  // const { text, usage } = await generateText({
+  //   model: modelOpenAI,
+  //   system: assistantDescription,
+  //   prompt: `${prompt}\n\nHere is the diff file content:\n${diffContent}`,
+  // });
+
+  // console.log({ usage });
+  return "text";
 }
