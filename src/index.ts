@@ -1,3 +1,4 @@
+import { addComment } from "./addComment";
 import aiClient from "./aiClient";
 // import { getDiffContent } from "./getDiff";
 import { getDiff } from "./getDiff_2";
@@ -13,8 +14,12 @@ async function main() {
     await getDiff(diffPath);
     console.log("Diff file was created");
 
-    const review = await aiClient(diffPath);
-    console.log("Review: ", review);
+    // const review = await aiClient(diffPath);
+    // console.log("Review: ", review);
+
+    const review = "Exampled Comment from action";
+
+    await addComment(review);
   } catch (error) {
     console.error(
       "Error in main function:",

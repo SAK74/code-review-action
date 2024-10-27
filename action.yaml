@@ -2,9 +2,6 @@ name: AI Code-Review
 author: SAK74
 description: Conduct code-review by AI based on git diff
 inputs:
-  GITHUB_TOKEN:
-    required: true
-    description: GITHUB_TOKEN
   OPENAI_API_KEY:
     required: true
     description: OPENAI_API_KEY

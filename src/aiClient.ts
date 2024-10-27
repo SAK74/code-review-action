@@ -47,5 +47,5 @@ export default async function main(diffFileURL: string) {
   });
 
   console.log({ usage });
-  return text;
+  return "Commented by OpenAI" + text;
 }
