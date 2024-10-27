@@ -45,8 +45,8 @@ function fetchWithRedirect(
 }
 
 export function getDiffContent(pathToFile: string) {
-  // const diffUrl = context.payload.pull_request?.diff_url;
-  const diffUrl = "https://github.com/SAK74/code-review-action/pull/1.diff";
+  const diffUrl = context.payload.pull_request?.diff_url;
+  // const diffUrl = "https://github.com/SAK74/code-review-action/pull/1.diff";
 
   if (!diffUrl) {
     throw Error("Can't access to diff url!!!");

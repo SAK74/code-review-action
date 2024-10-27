@@ -7,8 +7,8 @@ import prompt from "./helpers/prompt";
 
 // import "dotenv/config";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-// const OPENAI_API_KEY = getInput('OPENAI_API_KEY');
+// const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_KEY = getInput("OPENAI_API_KEY", { required: true });
 
 export default async function main(diffFileURL: string) {
   console.log({ diffFileURL });
@@ -19,7 +19,7 @@ export default async function main(diffFileURL: string) {
   if (!OPENAI_API_KEY) {
     throw Error("No OPENAI_API_KEY provided..!");
   }
-  const modelOpenAI = openai("gpt-4o-mini");
+  const modelOpenAI = createOpenAI({ apiKey: OPENAI_API_KEY })("gpt-4o-mini");
   // const modelAnthropic = anthropic("claude-3-haiku-20240307");
 
   let diffContent: string;
@@ -35,17 +35,17 @@ export default async function main(diffFileURL: string) {
 
   console.log("Openapi key: ", OPENAI_API_KEY);
 
-  console.log({ assistantDescription, prompt });
-  console.log({ diffContent });
+  // console.log({ assistantDescription, prompt });
+  // console.log({ diffContent });
 
-  // console.log("Start ai communication...");
+  console.log("Start ai communication...");
 
-  // const { text, usage } = await generateText({
-  //   model: modelOpenAI,
-  //   system: assistantDescription,
-  //   prompt: `${prompt}\n\nHere is the diff file content:\n${diffContent}`,
-  // });
+  const { text, usage } = await generateText({
+    model: modelOpenAI,
+    system: assistantDescription,
+    prompt: `${prompt}\n\nHere is the diff file content:\n${diffContent}`,
+  });
 
-  // console.log({ usage });
-  return "text";
+  console.log({ usage });
+  return text;
 }
