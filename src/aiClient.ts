@@ -38,14 +38,14 @@ export default async function main(diffFileURL: string) {
   // console.log({ assistantDescription, prompt });
   console.log({ diffContent });
 
-  // console.log("Start ai communication...");
+  console.log("Start ai communication...");
 
-  // const { text, usage } = await generateText({
-  //   model: modelOpenAI,
-  //   system: assistantDescription,
-  //   prompt: `${prompt}\n\nHere is the diff file content:\n${diffContent}`,
-  // });
+  const { text, usage } = await generateText({
+    model: modelOpenAI,
+    system: assistantDescription,
+    prompt: `${prompt}\n\nHere is the diff file content:\n${diffContent}`,
+  });
 
-  // console.log({ usage });
-  return "text";
+  console.log({ usage });
+  return text;
 }

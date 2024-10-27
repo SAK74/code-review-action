@@ -13,8 +13,16 @@ function fetchWithRedirect(
     reject("To many redirects!!!");
   }
 
-  get(url, (resp) => {
+  console.log({ url });
+  const headers = {
+    // "user-agent": "Node",
+    // "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`
+  };
+
+  get(url, { headers }, (resp) => {
     // resp.setEncoding("utf-8");
+    console.log("Status code: ", resp.statusCode);
+    console.log("Headers: ", resp.headers);
 
     if (resp.statusCode === 302 && resp.headers.location) {
       fetchWithRedirect(
@@ -45,8 +53,9 @@ function fetchWithRedirect(
 }
 
 export function getDiffContent(pathToFile: string) {
-  const diffUrl = context.payload.pull_request?.diff_url;
+  // const diffUrl = context.payload.pull_request?.diff_url;
   // const diffUrl = "https://github.com/SAK74/code-review-action/pull/1.diff";
+  const diffUrl = "https://github.com/SAK74/Test-workflow/pull/3.diff";
 
   console.log({ diffUrl });
 

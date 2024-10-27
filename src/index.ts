@@ -1,5 +1,6 @@
 import aiClient from "./aiClient";
-import { getDiffContent } from "./getDiff";
+// import { getDiffContent } from "./getDiff";
+import { getDiff } from "./getDiff_2";
 
 // const openapiKey = core.getInput('OPENAI_API_KEY')
 // const env = process.env;
@@ -9,7 +10,7 @@ const diffPath = "./diff.txt";
 
 async function main() {
   try {
-    await getDiffContent(diffPath);
+    await getDiff(diffPath);
     console.log("Diff file was created");
 
     const review = await aiClient(diffPath);
