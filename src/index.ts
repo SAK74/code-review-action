@@ -1,8 +1,3 @@
-// import { getInput } from "@actions/core";
-// import { context, getOctokit } from "@actions/github";
-
-import { version } from "node:process";
-
 import aiClient from "./aiClient";
 import { getDiffContent } from "./getDiff";
 
@@ -10,16 +5,15 @@ import { getDiffContent } from "./getDiff";
 // const env = process.env;
 // console.log({ env });
 
-// console.log({ version });
-// console.log({ context });
+const diffPath = "./diff.txt";
 
 async function main() {
   try {
-    const diffContent = await getDiffContent();
-    console.log({ diffContent });
+    await getDiffContent(diffPath);
+    console.log("Diff file was created");
 
-    // const res = await aiClient("./diff.txt");
-    // console.log("Result: ", res);
+    const review = await aiClient(diffPath);
+    console.log("Review: ", review);
   } catch (error) {
     console.error(
       "Error in main function:",
