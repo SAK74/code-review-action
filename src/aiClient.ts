@@ -1,10 +1,14 @@
-import { openai } from "@ai-sdk/openai";
+import { createOpenAI, openai } from "@ai-sdk/openai";
 import { generateText } from "ai";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+import { getInput } from "@actions/core";
 import assistantDescription from "./helpers/assistant-description";
 import prompt from "./helpers/prompt";
 
+// import "dotenv/config";
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// const OPENAI_API_KEY = getInput('OPENAI_API_KEY');
 
 export default async function main(diffFileURL: string) {
   console.log({ diffFileURL });
@@ -20,6 +24,9 @@ export default async function main(diffFileURL: string) {
 
   let diffContent: string;
   try {
+    if (!existsSync(diffFileURL)) {
+      throw Error("Path doesn't exist");
+    }
     diffContent = readFileSync(diffFileURL).toString("utf-8");
   } catch (err) {
     console.error("Error reading diff file:", err);

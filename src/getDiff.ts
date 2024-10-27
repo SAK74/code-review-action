@@ -26,12 +26,14 @@ function fetchWithRedirect(
       );
       return;
     }
-    const writeStream = createWriteStream(pathToFile);
-    resp.pipe(writeStream);
-
-    resp.on("end", () => {
+    const writeStream = createWriteStream(pathToFile).on("finish", () => {
       resolve();
     });
+    resp.pipe(writeStream);
+
+    // resp.on("end", () => {
+    //   resolve();
+    // });
     resp.on("error", (err) => {
       console.error("Error in read diff content: ", err.message);
       reject(err.message);
@@ -43,8 +45,8 @@ function fetchWithRedirect(
 }
 
 export function getDiffContent(pathToFile: string) {
-  const diffUrl = context.payload.pull_request?.diff_url;
-  // const diffUrl = "https://github.com/SAK74/code-review-action/pull/1.diff";
+  // const diffUrl = context.payload.pull_request?.diff_url;
+  const diffUrl = "https://github.com/SAK74/code-review-action/pull/1.diff";
 
   if (!diffUrl) {
     throw Error("Can't access to diff url!!!");
