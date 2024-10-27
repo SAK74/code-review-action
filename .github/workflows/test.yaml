@@ -12,8 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: echo "PR:" ${{github.event.pull_request.diff_url}}
-      - run: echo "PR:" ${{github.event.repository}}
+      # - run: echo "PR:" ${{github.event.pull_request.diff_url}}
+      # - run: echo "PR:" ${{github.event.repository}}
       # - run: echo ${{job.status}}
 
       # - run: ${{github.event}}
@@ -24,3 +24,7 @@ jobs:
       #     node-version: 20.x
 
       - uses: "./"
+        with:
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        env:
+          OPENAI_API_KEY: ${{secrets.OPENAI_API_KEY}}

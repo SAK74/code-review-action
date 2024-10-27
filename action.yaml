@@ -1,5 +1,10 @@
 name: JS Action
 description: test
+inputs:
+  GITHUB_TOKEN:
+    required: true
+    description: GITHUB_TOKEN
+
 runs:
   using: node20
   main: dist/index.js

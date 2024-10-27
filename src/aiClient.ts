@@ -2,11 +2,15 @@ import { openai } from "@ai-sdk/openai";
 import { generateText } from "ai";
 import { readFileSync } from "node:fs";
 
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
 export default async function main(diffFileURL: string) {
+  console.log({ diffFileURL });
+
   if (!diffFileURL) {
     throw Error("No diff file url provided..!");
   }
-  if (!process.env.OPENAI_API_KEY) {
+  if (!OPENAI_API_KEY) {
     throw Error("No OPENAI_API_KEY provided..!");
   }
   const modelOpenAI = openai("gpt-4o-mini");
@@ -19,6 +23,10 @@ export default async function main(diffFileURL: string) {
   const prompt = readFileSync("./helpers/prompt.txt", {
     encoding: "utf-8",
   }).toString();
+
+  console.log("Openapi key: ", OPENAI_API_KEY);
+
+  // console.log({ assistantDescription, prompt });
 
   let diffContent: string;
   try {

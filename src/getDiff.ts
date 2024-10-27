@@ -1,10 +1,12 @@
 import { context } from "@actions/github";
 import { get } from "node:https";
+import { createWriteStream } from "node:fs";
 
 function fetchWithRedirect(
   url: string,
-  resolve: (val: string | PromiseLike<string>) => void,
-  reject: (reason?: any) => void,
+  pathToFile: string,
+  resolve: (val: void | PromiseLike<void>) => void,
+  reject: (reason?: string) => void,
   redirectCount = 0
 ) {
   if (redirectCount > 2) {
@@ -17,19 +19,18 @@ function fetchWithRedirect(
     if (resp.statusCode === 302 && resp.headers.location) {
       fetchWithRedirect(
         resp.headers.location,
+        pathToFile,
         resolve,
         reject,
         redirectCount + 1
       );
       return;
     }
-    let diffContent = "";
+    const writeStream = createWriteStream(pathToFile);
+    resp.pipe(writeStream);
 
-    resp.on("data", (data) => {
-      diffContent += data;
-    });
     resp.on("end", () => {
-      resolve(diffContent);
+      resolve();
     });
     resp.on("error", (err) => {
       console.error("Error in read diff content: ", err.message);
@@ -41,13 +42,15 @@ function fetchWithRedirect(
   });
 }
 
-export function getDiffContent() {
+export function getDiffContent(pathToFile: string) {
   const diffUrl = context.payload.pull_request?.diff_url;
+  // const diffUrl = "https://github.com/SAK74/code-review-action/pull/1.diff";
+
   if (!diffUrl) {
     throw Error("Can't access to diff url!!!");
   }
 
-  return new Promise<string>((resolve, reject) => {
-    fetchWithRedirect(diffUrl, resolve, reject);
+  return new Promise<void>((resolve, reject) => {
+    fetchWithRedirect(diffUrl, pathToFile, resolve, reject);
   });
 }
