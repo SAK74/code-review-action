@@ -6,6 +6,11 @@ inputs:
     required: true
     description: OPENAI_API_KEY
 
+  with-comment:
+    required: false
+    description: should be PR commented
+    default: "false"
+
 runs:
   using: node20
   main: dist/index.js

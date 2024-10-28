@@ -3,14 +3,14 @@ import { generateText } from "ai";
 import { readFileSync, existsSync } from "node:fs";
 import { getInput } from "@actions/core";
 import assistantDescription from "./helpers/assistant-description";
-import prompt from "./helpers/prompt";
+// import prompt from "./helpers/prompt";
 
 // import "dotenv/config";
 
 // const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_API_KEY = getInput("OPENAI_API_KEY", { required: true });
 
-export default async function main(diffFileURL: string) {
+export default async function main(diffFileURL: string, prompt: string) {
   console.log({ diffFileURL });
 
   if (!diffFileURL) {
