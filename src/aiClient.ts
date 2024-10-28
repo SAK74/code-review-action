@@ -32,7 +32,8 @@ export default async function main(diffFileURL: string, type: ResultType) {
   if (!OPENAI_API_KEY) {
     throw Error("No OPENAI_API_KEY provided..!");
   }
-  const modelOpenAI = createOpenAI({ apiKey: OPENAI_API_KEY })("gpt-4o-mini");
+  const chatModel = getInput("open_ai_model");
+  const modelOpenAI = createOpenAI({ apiKey: OPENAI_API_KEY })(chatModel);
   // const modelAnthropic = anthropic("claude-3-haiku-20240307");
 
   let diffContent: string;

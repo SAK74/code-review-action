@@ -47470,7 +47470,8 @@ function main(diffFileURL, type) {
         if (!OPENAI_API_KEY) {
             throw Error("No OPENAI_API_KEY provided..!");
         }
-        const modelOpenAI = (0, openai_1.createOpenAI)({ apiKey: OPENAI_API_KEY })("gpt-4o-mini");
+        const chatModel = (0, core_1.getInput)("open_ai_model");
+        const modelOpenAI = (0, openai_1.createOpenAI)({ apiKey: OPENAI_API_KEY })(chatModel);
         // const modelAnthropic = anthropic("claude-3-haiku-20240307");
         let diffContent;
         try {

@@ -1,10 +1,14 @@
-name: AI Code-Review
+name: AI Pull-Review
 author: SAK74
 description: Conduct code-review & PR description by AI based on git diff
 inputs:
   OPENAI_API_KEY:
     required: true
     description: OPENAI_API_KEY
+  open_ai_model:
+    required: false
+    description: openAI model to interact
+    default: gpt-4o-mini
 
   with-comment:
     required: false
