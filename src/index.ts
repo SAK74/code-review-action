@@ -2,8 +2,6 @@ import { addComment } from "./addComment";
 import aiClient from "./aiClient";
 import { getDiff } from "./getDiff_2";
 import { getBooleanInput } from "@actions/core";
-import commentPrompt from "./helpers/promptForComment";
-import descrPromp from "./helpers/promptForDescr";
 import { context } from "@actions/github";
 import { addDescr } from "./addDecription";
 
@@ -23,13 +21,13 @@ async function main() {
     console.log("Diff file was created");
 
     if (shouldComment) {
-      const review = await aiClient(diffPath, commentPrompt);
+      const review = await aiClient(diffPath, "comment");
       // const review = "Exampled Comment from action";
       await addComment(review);
     }
 
     if (shouldDescrCreate) {
-      const descrContent = await aiClient(diffPath, descrPromp);
+      const descrContent = await aiClient(diffPath, "description");
       // const descrContent = "exampled description";
       await addDescr(descrContent);
     }

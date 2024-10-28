@@ -47386,7 +47386,7 @@ function addComment(content) {
         if (!prNumber) {
             throw Error("Can't access PR number");
         }
-        yield (0, exec_1.exec)("gh", ["pr", "comment", `${prNumber}`, "-b", `\"${content}\"`]);
+        yield (0, exec_1.exec)("gh", ["pr", "comment", `${prNumber}`, "-b", `${content}`]);
     });
 }
 
@@ -47449,8 +47449,20 @@ const ai_1 = __nccwpck_require__(6619);
 const node_fs_1 = __nccwpck_require__(3024);
 const core_1 = __nccwpck_require__(7484);
 const assistant_description_1 = __importDefault(__nccwpck_require__(6962));
+const promptForComment_1 = __importDefault(__nccwpck_require__(5791));
+const promptForDescr_1 = __importDefault(__nccwpck_require__(6583));
+const mappedPrompt = {
+    comment: {
+        prompt: promptForComment_1.default,
+        label: "commented",
+    },
+    description: {
+        prompt: promptForDescr_1.default,
+        label: "created",
+    },
+};
 const OPENAI_API_KEY = (0, core_1.getInput)("OPENAI_API_KEY", { required: true });
-function main(diffFileURL, prompt) {
+function main(diffFileURL, type) {
     return __awaiter(this, void 0, void 0, function* () {
         if (!diffFileURL) {
             throw Error("No diff file url provided..!");
@@ -47471,17 +47483,15 @@ function main(diffFileURL, prompt) {
             console.error("Error reading diff file:", err);
             throw Error(err.message);
         }
-        console.log("Openapi key: ", OPENAI_API_KEY);
-        // console.log({ assistantDescription, prompt });
-        console.log({ diffContent });
         console.log("Start ai communication...");
+        const prompt = mappedPrompt[type];
         const { text, usage } = yield (0, ai_1.generateText)({
             model: modelOpenAI,
             system: assistant_description_1.default,
-            prompt: `${prompt}\n\nHere is the diff file content:\n${diffContent}`,
+            prompt: `${prompt.prompt}\n\nHere is the diff file content:\n${diffContent}`,
         });
         console.log({ usage });
-        return "Commented by OpenAI" + text;
+        return `#### ${prompt.label} by OpenAI  \n` + text;
     });
 }
 
@@ -47514,7 +47524,6 @@ function getDiff(pathToFile) {
         if (!baseSha || !headSha) {
             throw Error("Can't access to PR context");
         }
-        // console.log({ baseSha, headSha });
         yield (0, exec_1.exec)("git", ["diff", headSha, baseSha, `--output=${pathToFile}`]);
     });
 }
@@ -47589,8 +47598,6 @@ const addComment_1 = __nccwpck_require__(4739);
 const aiClient_1 = __importDefault(__nccwpck_require__(5366));
 const getDiff_2_1 = __nccwpck_require__(13);
 const core_1 = __nccwpck_require__(7484);
-const promptForComment_1 = __importDefault(__nccwpck_require__(5791));
-const promptForDescr_1 = __importDefault(__nccwpck_require__(6583));
 const github_1 = __nccwpck_require__(3228);
 const addDecription_1 = __nccwpck_require__(9345);
 const diffPath = "./diff.txt";
@@ -47606,12 +47613,12 @@ function main() {
             yield (0, getDiff_2_1.getDiff)(diffPath);
             console.log("Diff file was created");
             if (shouldComment) {
-                const review = yield (0, aiClient_1.default)(diffPath, promptForComment_1.default);
+                const review = yield (0, aiClient_1.default)(diffPath, "comment");
                 // const review = "Exampled Comment from action";
                 yield (0, addComment_1.addComment)(review);
             }
             if (shouldDescrCreate) {
-                const descrContent = yield (0, aiClient_1.default)(diffPath, promptForDescr_1.default);
+                const descrContent = yield (0, aiClient_1.default)(diffPath, "description");
                 // const descrContent = "exampled description";
                 yield (0, addDecription_1.addDescr)(descrContent);
             }

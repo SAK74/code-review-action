@@ -8,7 +8,5 @@ export async function getDiff(pathToFile: string) {
     throw Error("Can't access to PR context");
   }
 
-  // console.log({ baseSha, headSha });
-
   await exec("git", ["diff", headSha, baseSha, `--output=${pathToFile}`]);
 }

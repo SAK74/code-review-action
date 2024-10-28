@@ -1,6 +1,6 @@
 name: AI Code-Review
 author: SAK74
-description: Conduct code-review by AI based on git diff
+description: Conduct code-review & PR description by AI based on git diff
 inputs:
   OPENAI_API_KEY:
     required: true

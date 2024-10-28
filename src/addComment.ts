@@ -6,5 +6,5 @@ export async function addComment(content: string) {
   if (!prNumber) {
     throw Error("Can't access PR number");
   }
-  await exec("gh", ["pr", "comment", `${prNumber}`, "-b", `\"${content}\"`]);
+  await exec("gh", ["pr", "comment", `${prNumber}`, "-b", `${content}`]);
 }
