@@ -47525,7 +47525,7 @@ function getDiff(pathToFile) {
         if (!baseSha || !headSha) {
             throw Error("Can't access to PR context");
         }
-        yield (0, exec_1.exec)("git", ["diff", headSha, baseSha, `--output=${pathToFile}`]);
+        yield (0, exec_1.exec)("git", ["diff", baseSha, headSha, `--output=${pathToFile}`]);
     });
 }
 
