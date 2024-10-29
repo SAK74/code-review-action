@@ -2,8 +2,6 @@
 
 Automated, AI-powered PR summaries and review support for CI/CD, based on PR diffs.
 
-### Navigation
-
 - [Parameters](#parameters)
 - [Permissions](#permissions)
 - [Important Configuration](#important-configuration)
