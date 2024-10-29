@@ -69,7 +69,7 @@ jobs:
           fetch-depth: 0 #required to git history access
         name: Checkout repository
 
-      - uses: SAK74/code-review-action@v1.0.1
+      - uses: SAK74/code-review-action@v1
         name: Call action
         with:
           OPENAI_API_KEY: ${{secrets.OPENAI_API_KEY}}
@@ -81,3 +81,6 @@ jobs:
 #### that's it! :relaxed:
 
 ### Sample Results
+![descr_1](https://github.com/user-attachments/assets/4e1ebb7b-cbc3-4b66-86fb-9fb2039b8d2f)
+![comment_1](https://github.com/user-attachments/assets/b75b0c28-33d4-4c8f-9627-ecb514908f65)
+
