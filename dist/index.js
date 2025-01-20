@@ -3474,17 +3474,16 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/index.ts
 var src_exports = {};
 __export(src_exports, {
-  OpenAI: () => OpenAI,
   createOpenAI: () => createOpenAI,
   openai: () => openai
 });
 module.exports = __toCommonJS(src_exports);
 
-// src/openai-facade.ts
-var import_provider_utils5 = __nccwpck_require__(1746);
+// src/openai-provider.ts
+var import_provider_utils7 = __nccwpck_require__(1746);
 
 // src/openai-chat-language-model.ts
-var import_provider2 = __nccwpck_require__(2466);
+var import_provider3 = __nccwpck_require__(2466);
 var import_provider_utils3 = __nccwpck_require__(1746);
 var import_zod2 = __nccwpck_require__(4809);
 
@@ -3663,7 +3662,7 @@ function mapOpenAIFinishReason(finishReason) {
 // src/openai-error.ts
 var import_zod = __nccwpck_require__(4809);
 var import_provider_utils2 = __nccwpck_require__(1746);
-var openAIErrorDataSchema = import_zod.z.object({
+var openaiErrorDataSchema = import_zod.z.object({
   error: import_zod.z.object({
     message: import_zod.z.string(),
     // The additional information below is handled loosely to support
@@ -3675,7 +3674,7 @@ var openAIErrorDataSchema = import_zod.z.object({
   })
 });
 var openaiFailedResponseHandler = (0, import_provider_utils2.createJsonErrorResponseHandler)({
-  errorSchema: openAIErrorDataSchema,
+  errorSchema: openaiErrorDataSchema,
   errorToMessage: (data) => data.error.message
 });
 
@@ -3692,6 +3691,107 @@ function getResponseMetadata({
   };
 }
 
+// src/openai-prepare-tools.ts
+var import_provider2 = __nccwpck_require__(2466);
+function prepareTools({
+  mode,
+  useLegacyFunctionCalling = false,
+  structuredOutputs
+}) {
+  var _a;
+  const tools = ((_a = mode.tools) == null ? void 0 : _a.length) ? mode.tools : void 0;
+  const toolWarnings = [];
+  if (tools == null) {
+    return { tools: void 0, tool_choice: void 0, toolWarnings };
+  }
+  const toolChoice = mode.toolChoice;
+  if (useLegacyFunctionCalling) {
+    const openaiFunctions = [];
+    for (const tool of tools) {
+      if (tool.type === "provider-defined") {
+        toolWarnings.push({ type: "unsupported-tool", tool });
+      } else {
+        openaiFunctions.push({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters
+        });
+      }
+    }
+    if (toolChoice == null) {
+      return {
+        functions: openaiFunctions,
+        function_call: void 0,
+        toolWarnings
+      };
+    }
+    const type2 = toolChoice.type;
+    switch (type2) {
+      case "auto":
+      case "none":
+      case void 0:
+        return {
+          functions: openaiFunctions,
+          function_call: void 0,
+          toolWarnings
+        };
+      case "required":
+        throw new import_provider2.UnsupportedFunctionalityError({
+          functionality: "useLegacyFunctionCalling and toolChoice: required"
+        });
+      default:
+        return {
+          functions: openaiFunctions,
+          function_call: { name: toolChoice.toolName },
+          toolWarnings
+        };
+    }
+  }
+  const openaiTools = [];
+  for (const tool of tools) {
+    if (tool.type === "provider-defined") {
+      toolWarnings.push({ type: "unsupported-tool", tool });
+    } else {
+      openaiTools.push({
+        type: "function",
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+          strict: structuredOutputs ? true : void 0
+        }
+      });
+    }
+  }
+  if (toolChoice == null) {
+    return { tools: openaiTools, tool_choice: void 0, toolWarnings };
+  }
+  const type = toolChoice.type;
+  switch (type) {
+    case "auto":
+    case "none":
+    case "required":
+      return { tools: openaiTools, tool_choice: type, toolWarnings };
+    case "tool":
+      return {
+        tools: openaiTools,
+        tool_choice: {
+          type: "function",
+          function: {
+            name: toolChoice.toolName
+          }
+        },
+        toolWarnings
+      };
+    default: {
+      const _exhaustiveCheck = type;
+      throw new import_provider2.UnsupportedFunctionalityError({
+        functionality: `Unsupported tool choice type: ${_exhaustiveCheck}`
+      });
+    }
+  }
+}
+
 // src/openai-chat-language-model.ts
 var OpenAIChatLanguageModel = class {
   constructor(modelId, settings, config) {
@@ -3701,7 +3801,8 @@ var OpenAIChatLanguageModel = class {
     this.config = config;
   }
   get supportsStructuredOutputs() {
-    return this.settings.structuredOutputs === true;
+    var _a;
+    return (_a = this.settings.structuredOutputs) != null ? _a : false;
   }
   get defaultObjectGenerationMode() {
     if (isAudioModel(this.modelId)) {
@@ -3729,7 +3830,7 @@ var OpenAIChatLanguageModel = class {
     seed,
     providerMetadata
   }) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const type = mode.type;
     const warnings = [];
     if (topK != null) {
@@ -3738,21 +3839,21 @@ var OpenAIChatLanguageModel = class {
         setting: "topK"
       });
     }
-    if (responseFormat != null && responseFormat.type === "json" && responseFormat.schema != null) {
+    if ((responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null && !this.supportsStructuredOutputs) {
       warnings.push({
         type: "unsupported-setting",
         setting: "responseFormat",
-        details: "JSON response format schema is not supported"
+        details: "JSON response format schema is only supported with structuredOutputs"
       });
     }
     const useLegacyFunctionCalling = this.settings.useLegacyFunctionCalling;
     if (useLegacyFunctionCalling && this.settings.parallelToolCalls === true) {
-      throw new import_provider2.UnsupportedFunctionalityError({
+      throw new import_provider3.UnsupportedFunctionalityError({
         functionality: "useLegacyFunctionCalling with parallelToolCalls"
       });
     }
-    if (useLegacyFunctionCalling && this.settings.structuredOutputs === true) {
-      throw new import_provider2.UnsupportedFunctionalityError({
+    if (useLegacyFunctionCalling && this.supportsStructuredOutputs) {
+      throw new import_provider3.UnsupportedFunctionalityError({
         functionality: "structuredOutputs with useLegacyFunctionCalling"
       });
     }
@@ -3771,14 +3872,23 @@ var OpenAIChatLanguageModel = class {
       top_p: topP,
       frequency_penalty: frequencyPenalty,
       presence_penalty: presencePenalty,
+      response_format: (responseFormat == null ? void 0 : responseFormat.type) === "json" ? this.supportsStructuredOutputs && responseFormat.schema != null ? {
+        type: "json_schema",
+        json_schema: {
+          schema: responseFormat.schema,
+          strict: true,
+          name: (_a = responseFormat.name) != null ? _a : "response",
+          description: responseFormat.description
+        }
+      } : { type: "json_object" } : void 0,
       stop: stopSequences,
       seed,
       // openai specific settings:
-      max_completion_tokens: (_b = (_a = providerMetadata == null ? void 0 : providerMetadata.openai) == null ? void 0 : _a.maxCompletionTokens) != null ? _b : void 0,
-      store: (_d = (_c = providerMetadata == null ? void 0 : providerMetadata.openai) == null ? void 0 : _c.store) != null ? _d : void 0,
-      metadata: (_f = (_e = providerMetadata == null ? void 0 : providerMetadata.openai) == null ? void 0 : _e.metadata) != null ? _f : void 0,
-      // response format:
-      response_format: (responseFormat == null ? void 0 : responseFormat.type) === "json" ? { type: "json_object" } : void 0,
+      max_completion_tokens: (_b = providerMetadata == null ? void 0 : providerMetadata.openai) == null ? void 0 : _b.maxCompletionTokens,
+      store: (_c = providerMetadata == null ? void 0 : providerMetadata.openai) == null ? void 0 : _c.store,
+      metadata: (_d = providerMetadata == null ? void 0 : providerMetadata.openai) == null ? void 0 : _d.metadata,
+      prediction: (_e = providerMetadata == null ? void 0 : providerMetadata.openai) == null ? void 0 : _e.prediction,
+      reasoning_effort: (_g = (_f = providerMetadata == null ? void 0 : providerMetadata.openai) == null ? void 0 : _f.reasoningEffort) != null ? _g : this.settings.reasoningEffort,
       // messages:
       messages: convertToOpenAIChatMessages({
         prompt,
@@ -3793,28 +3903,32 @@ var OpenAIChatLanguageModel = class {
     }
     switch (type) {
       case "regular": {
+        const { tools, tool_choice, functions, function_call, toolWarnings } = prepareTools({
+          mode,
+          useLegacyFunctionCalling,
+          structuredOutputs: this.supportsStructuredOutputs
+        });
         return {
           args: {
             ...baseArgs,
-            ...prepareToolsAndToolChoice({
-              mode,
-              useLegacyFunctionCalling,
-              structuredOutputs: this.settings.structuredOutputs
-            })
+            tools,
+            tool_choice,
+            functions,
+            function_call
           },
-          warnings
+          warnings: [...warnings, ...toolWarnings]
         };
       }
       case "object-json": {
         return {
           args: {
             ...baseArgs,
-            response_format: this.settings.structuredOutputs === true ? {
+            response_format: this.supportsStructuredOutputs && mode.schema != null ? {
               type: "json_schema",
               json_schema: {
                 schema: mode.schema,
                 strict: true,
-                name: (_g = mode.name) != null ? _g : "response",
+                name: (_h = mode.name) != null ? _h : "response",
                 description: mode.description
               }
             } : { type: "json_object" }
@@ -3849,7 +3963,7 @@ var OpenAIChatLanguageModel = class {
                   name: mode.tool.name,
                   description: mode.tool.description,
                   parameters: mode.tool.parameters,
-                  strict: this.settings.structuredOutputs === true ? true : void 0
+                  strict: this.supportsStructuredOutputs ? true : void 0
                 }
               }
             ]
@@ -3865,22 +3979,22 @@ var OpenAIChatLanguageModel = class {
   }
   async doGenerate(options) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
-    const { args, warnings } = this.getArgs(options);
+    const { args: body, warnings } = this.getArgs(options);
     const { responseHeaders, value: response } = await (0, import_provider_utils3.postJsonToApi)({
       url: this.config.url({
         path: "/chat/completions",
         modelId: this.modelId
       }),
       headers: (0, import_provider_utils3.combineHeaders)(this.config.headers(), options.headers),
-      body: args,
+      body,
       failedResponseHandler: openaiFailedResponseHandler,
       successfulResponseHandler: (0, import_provider_utils3.createJsonResponseHandler)(
-        openAIChatResponseSchema
+        openaiChatResponseSchema
       ),
       abortSignal: options.abortSignal,
       fetch: this.config.fetch
     });
-    const { messages: rawPrompt, ...rawSettings } = args;
+    const { messages: rawPrompt, ...rawSettings } = body;
     const choice = response.choices[0];
     let providerMetadata;
     if (((_b = (_a = response.usage) == null ? void 0 : _a.completion_tokens_details) == null ? void 0 : _b.reasoning_tokens) != null || ((_d = (_c = response.usage) == null ? void 0 : _c.prompt_tokens_details) == null ? void 0 : _d.cached_tokens) != null) {
@@ -3917,6 +4031,7 @@ var OpenAIChatLanguageModel = class {
       },
       rawCall: { rawPrompt, rawSettings },
       rawResponse: { headers: responseHeaders },
+      request: { body: JSON.stringify(body) },
       response: getResponseMetadata(response),
       warnings,
       logprobs: mapOpenAIChatLogProbsOutput(choice.logprobs),
@@ -3924,7 +4039,7 @@ var OpenAIChatLanguageModel = class {
     };
   }
   async doStream(options) {
-    if (isReasoningModel(this.modelId)) {
+    if (this.settings.simulateStreaming) {
       const result = await this.doGenerate(options);
       const simulatedStream = new ReadableStream({
         start(controller) {
@@ -3961,18 +4076,19 @@ var OpenAIChatLanguageModel = class {
       };
     }
     const { args, warnings } = this.getArgs(options);
+    const body = {
+      ...args,
+      stream: true,
+      // only include stream_options when in strict compatibility mode:
+      stream_options: this.config.compatibility === "strict" ? { include_usage: true } : void 0
+    };
     const { responseHeaders, value: response } = await (0, import_provider_utils3.postJsonToApi)({
       url: this.config.url({
         path: "/chat/completions",
         modelId: this.modelId
       }),
       headers: (0, import_provider_utils3.combineHeaders)(this.config.headers(), options.headers),
-      body: {
-        ...args,
-        stream: true,
-        // only include stream_options when in strict compatibility mode:
-        stream_options: this.config.compatibility === "strict" ? { include_usage: true } : void 0
-      },
+      body,
       failedResponseHandler: openaiFailedResponseHandler,
       successfulResponseHandler: (0, import_provider_utils3.createEventSourceResponseHandler)(
         openaiChatChunkSchema
@@ -3995,7 +4111,7 @@ var OpenAIChatLanguageModel = class {
       stream: response.pipeThrough(
         new TransformStream({
           transform(chunk, controller) {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
             if (!chunk.success) {
               finishReason = "error";
               controller.enqueue({ type: "error", error: chunk.error });
@@ -4019,12 +4135,18 @@ var OpenAIChatLanguageModel = class {
                 promptTokens: (_a = value.usage.prompt_tokens) != null ? _a : void 0,
                 completionTokens: (_b = value.usage.completion_tokens) != null ? _b : void 0
               };
-              if (((_c = value.usage.prompt_tokens_details) == null ? void 0 : _c.cached_tokens) != null) {
-                providerMetadata = {
-                  openai: {
-                    cachedPromptTokens: (_d = value.usage.prompt_tokens_details) == null ? void 0 : _d.cached_tokens
-                  }
-                };
+              const {
+                completion_tokens_details: completionTokenDetails,
+                prompt_tokens_details: promptTokenDetails
+              } = value.usage;
+              if ((completionTokenDetails == null ? void 0 : completionTokenDetails.reasoning_tokens) != null || (promptTokenDetails == null ? void 0 : promptTokenDetails.cached_tokens) != null) {
+                providerMetadata = { openai: {} };
+                if ((completionTokenDetails == null ? void 0 : completionTokenDetails.reasoning_tokens) != null) {
+                  providerMetadata.openai.reasoningTokens = completionTokenDetails == null ? void 0 : completionTokenDetails.reasoning_tokens;
+                }
+                if ((promptTokenDetails == null ? void 0 : promptTokenDetails.cached_tokens) != null) {
+                  providerMetadata.openai.cachedPromptTokens = promptTokenDetails == null ? void 0 : promptTokenDetails.cached_tokens;
+                }
               }
             }
             const choice = value.choices[0];
@@ -4061,19 +4183,19 @@ var OpenAIChatLanguageModel = class {
                 const index = toolCallDelta.index;
                 if (toolCalls[index] == null) {
                   if (toolCallDelta.type !== "function") {
-                    throw new import_provider2.InvalidResponseDataError({
+                    throw new import_provider3.InvalidResponseDataError({
                       data: toolCallDelta,
                       message: `Expected 'function' type.`
                     });
                   }
                   if (toolCallDelta.id == null) {
-                    throw new import_provider2.InvalidResponseDataError({
+                    throw new import_provider3.InvalidResponseDataError({
                       data: toolCallDelta,
                       message: `Expected 'id' to be a string.`
                     });
                   }
-                  if (((_e = toolCallDelta.function) == null ? void 0 : _e.name) == null) {
-                    throw new import_provider2.InvalidResponseDataError({
+                  if (((_c = toolCallDelta.function) == null ? void 0 : _c.name) == null) {
+                    throw new import_provider3.InvalidResponseDataError({
                       data: toolCallDelta,
                       message: `Expected 'function.name' to be a string.`
                     });
@@ -4083,11 +4205,12 @@ var OpenAIChatLanguageModel = class {
                     type: "function",
                     function: {
                       name: toolCallDelta.function.name,
-                      arguments: (_f = toolCallDelta.function.arguments) != null ? _f : ""
-                    }
+                      arguments: (_d = toolCallDelta.function.arguments) != null ? _d : ""
+                    },
+                    hasFinished: false
                   };
                   const toolCall2 = toolCalls[index];
-                  if (((_g = toolCall2.function) == null ? void 0 : _g.name) != null && ((_h = toolCall2.function) == null ? void 0 : _h.arguments) != null) {
+                  if (((_e = toolCall2.function) == null ? void 0 : _e.name) != null && ((_f = toolCall2.function) == null ? void 0 : _f.arguments) != null) {
                     if (toolCall2.function.arguments.length > 0) {
                       controller.enqueue({
                         type: "tool-call-delta",
@@ -4101,33 +4224,38 @@ var OpenAIChatLanguageModel = class {
                       controller.enqueue({
                         type: "tool-call",
                         toolCallType: "function",
-                        toolCallId: (_i = toolCall2.id) != null ? _i : (0, import_provider_utils3.generateId)(),
+                        toolCallId: (_g = toolCall2.id) != null ? _g : (0, import_provider_utils3.generateId)(),
                         toolName: toolCall2.function.name,
                         args: toolCall2.function.arguments
                       });
+                      toolCall2.hasFinished = true;
                     }
                   }
                   continue;
                 }
                 const toolCall = toolCalls[index];
-                if (((_j = toolCallDelta.function) == null ? void 0 : _j.arguments) != null) {
-                  toolCall.function.arguments += (_l = (_k = toolCallDelta.function) == null ? void 0 : _k.arguments) != null ? _l : "";
+                if (toolCall.hasFinished) {
+                  continue;
+                }
+                if (((_h = toolCallDelta.function) == null ? void 0 : _h.arguments) != null) {
+                  toolCall.function.arguments += (_j = (_i = toolCallDelta.function) == null ? void 0 : _i.arguments) != null ? _j : "";
                 }
                 controller.enqueue({
                   type: "tool-call-delta",
                   toolCallType: "function",
                   toolCallId: toolCall.id,
                   toolName: toolCall.function.name,
-                  argsTextDelta: (_m = toolCallDelta.function.arguments) != null ? _m : ""
+                  argsTextDelta: (_k = toolCallDelta.function.arguments) != null ? _k : ""
                 });
-                if (((_n = toolCall.function) == null ? void 0 : _n.name) != null && ((_o = toolCall.function) == null ? void 0 : _o.arguments) != null && (0, import_provider_utils3.isParsableJson)(toolCall.function.arguments)) {
+                if (((_l = toolCall.function) == null ? void 0 : _l.name) != null && ((_m = toolCall.function) == null ? void 0 : _m.arguments) != null && (0, import_provider_utils3.isParsableJson)(toolCall.function.arguments)) {
                   controller.enqueue({
                     type: "tool-call",
                     toolCallType: "function",
-                    toolCallId: (_p = toolCall.id) != null ? _p : (0, import_provider_utils3.generateId)(),
+                    toolCallId: (_n = toolCall.id) != null ? _n : (0, import_provider_utils3.generateId)(),
                     toolName: toolCall.function.name,
                     args: toolCall.function.arguments
                   });
+                  toolCall.hasFinished = true;
                 }
               }
             }
@@ -4149,11 +4277,12 @@ var OpenAIChatLanguageModel = class {
       ),
       rawCall: { rawPrompt, rawSettings },
       rawResponse: { headers: responseHeaders },
+      request: { body: JSON.stringify(body) },
       warnings
     };
   }
 };
-var openAITokenUsageSchema = import_zod2.z.object({
+var openaiTokenUsageSchema = import_zod2.z.object({
   prompt_tokens: import_zod2.z.number().nullish(),
   completion_tokens: import_zod2.z.number().nullish(),
   prompt_tokens_details: import_zod2.z.object({
@@ -4163,7 +4292,7 @@ var openAITokenUsageSchema = import_zod2.z.object({
     reasoning_tokens: import_zod2.z.number().nullish()
   }).nullish()
 }).nullish();
-var openAIChatResponseSchema = import_zod2.z.object({
+var openaiChatResponseSchema = import_zod2.z.object({
   id: import_zod2.z.string().nullish(),
   created: import_zod2.z.number().nullish(),
   model: import_zod2.z.string().nullish(),
@@ -4205,7 +4334,7 @@ var openAIChatResponseSchema = import_zod2.z.object({
       finish_reason: import_zod2.z.string().nullish()
     })
   ),
-  usage: openAITokenUsageSchema
+  usage: openaiTokenUsageSchema
 });
 var openaiChatChunkSchema = import_zod2.z.union([
   import_zod2.z.object({
@@ -4251,98 +4380,24 @@ var openaiChatChunkSchema = import_zod2.z.union([
         index: import_zod2.z.number()
       })
     ),
-    usage: openAITokenUsageSchema
+    usage: openaiTokenUsageSchema
   }),
-  openAIErrorDataSchema
+  openaiErrorDataSchema
 ]);
-function prepareToolsAndToolChoice({
-  mode,
-  useLegacyFunctionCalling = false,
-  structuredOutputs = false
-}) {
-  var _a;
-  const tools = ((_a = mode.tools) == null ? void 0 : _a.length) ? mode.tools : void 0;
-  if (tools == null) {
-    return { tools: void 0, tool_choice: void 0 };
-  }
-  const toolChoice = mode.toolChoice;
-  if (useLegacyFunctionCalling) {
-    const mappedFunctions = tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }));
-    if (toolChoice == null) {
-      return { functions: mappedFunctions, function_call: void 0 };
-    }
-    const type2 = toolChoice.type;
-    switch (type2) {
-      case "auto":
-      case "none":
-      case void 0:
-        return {
-          functions: mappedFunctions,
-          function_call: void 0
-        };
-      case "required":
-        throw new import_provider2.UnsupportedFunctionalityError({
-          functionality: "useLegacyFunctionCalling and toolChoice: required"
-        });
-      default:
-        return {
-          functions: mappedFunctions,
-          function_call: { name: toolChoice.toolName }
-        };
-    }
-  }
-  const mappedTools = tools.map((tool) => ({
-    type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-      strict: structuredOutputs === true ? true : void 0
-    }
-  }));
-  if (toolChoice == null) {
-    return { tools: mappedTools, tool_choice: void 0 };
-  }
-  const type = toolChoice.type;
-  switch (type) {
-    case "auto":
-    case "none":
-    case "required":
-      return { tools: mappedTools, tool_choice: type };
-    case "tool":
-      return {
-        tools: mappedTools,
-        tool_choice: {
-          type: "function",
-          function: {
-            name: toolChoice.toolName
-          }
-        }
-      };
-    default: {
-      const _exhaustiveCheck = type;
-      throw new Error(`Unsupported tool choice type: ${_exhaustiveCheck}`);
-    }
-  }
-}
 function isReasoningModel(modelId) {
-  return modelId.startsWith("o1-");
+  return modelId === "o1" || modelId.startsWith("o1-");
 }
 function isAudioModel(modelId) {
   return modelId.startsWith("gpt-4o-audio-preview");
 }
 
 // src/openai-completion-language-model.ts
-var import_provider4 = __nccwpck_require__(2466);
+var import_provider5 = __nccwpck_require__(2466);
 var import_provider_utils4 = __nccwpck_require__(1746);
 var import_zod3 = __nccwpck_require__(4809);
 
 // src/convert-to-openai-completion-prompt.ts
-var import_provider3 = __nccwpck_require__(2466);
+var import_provider4 = __nccwpck_require__(2466);
 function convertToOpenAICompletionPrompt({
   prompt,
   inputFormat,
@@ -4362,7 +4417,7 @@ function convertToOpenAICompletionPrompt({
   for (const { role, content } of prompt) {
     switch (role) {
       case "system": {
-        throw new import_provider3.InvalidPromptError({
+        throw new import_provider4.InvalidPromptError({
           message: "Unexpected system message in prompt: ${content}",
           prompt
         });
@@ -4374,7 +4429,7 @@ function convertToOpenAICompletionPrompt({
               return part.text;
             }
             case "image": {
-              throw new import_provider3.UnsupportedFunctionalityError({
+              throw new import_provider4.UnsupportedFunctionalityError({
                 functionality: "images"
               });
             }
@@ -4393,7 +4448,7 @@ ${userMessage}
               return part.text;
             }
             case "tool-call": {
-              throw new import_provider3.UnsupportedFunctionalityError({
+              throw new import_provider4.UnsupportedFunctionalityError({
                 functionality: "tool-call messages"
               });
             }
@@ -4406,7 +4461,7 @@ ${assistantMessage}
         break;
       }
       case "tool": {
-        throw new import_provider3.UnsupportedFunctionalityError({
+        throw new import_provider4.UnsupportedFunctionalityError({
           functionality: "tool messages"
         });
       }
@@ -4507,24 +4562,24 @@ var OpenAICompletionLanguageModel = class {
     switch (type) {
       case "regular": {
         if ((_a = mode.tools) == null ? void 0 : _a.length) {
-          throw new import_provider4.UnsupportedFunctionalityError({
+          throw new import_provider5.UnsupportedFunctionalityError({
             functionality: "tools"
           });
         }
         if (mode.toolChoice) {
-          throw new import_provider4.UnsupportedFunctionalityError({
+          throw new import_provider5.UnsupportedFunctionalityError({
             functionality: "toolChoice"
           });
         }
         return { args: baseArgs, warnings };
       }
       case "object-json": {
-        throw new import_provider4.UnsupportedFunctionalityError({
+        throw new import_provider5.UnsupportedFunctionalityError({
           functionality: "object-json mode"
         });
       }
       case "object-tool": {
-        throw new import_provider4.UnsupportedFunctionalityError({
+        throw new import_provider5.UnsupportedFunctionalityError({
           functionality: "object-tool mode"
         });
       }
@@ -4545,7 +4600,7 @@ var OpenAICompletionLanguageModel = class {
       body: args,
       failedResponseHandler: openaiFailedResponseHandler,
       successfulResponseHandler: (0, import_provider_utils4.createJsonResponseHandler)(
-        openAICompletionResponseSchema
+        openaiCompletionResponseSchema
       ),
       abortSignal: options.abortSignal,
       fetch: this.config.fetch
@@ -4563,23 +4618,25 @@ var OpenAICompletionLanguageModel = class {
       rawCall: { rawPrompt, rawSettings },
       rawResponse: { headers: responseHeaders },
       response: getResponseMetadata(response),
-      warnings
+      warnings,
+      request: { body: JSON.stringify(args) }
     };
   }
   async doStream(options) {
     const { args, warnings } = this.getArgs(options);
+    const body = {
+      ...args,
+      stream: true,
+      // only include stream_options when in strict compatibility mode:
+      stream_options: this.config.compatibility === "strict" ? { include_usage: true } : void 0
+    };
     const { responseHeaders, value: response } = await (0, import_provider_utils4.postJsonToApi)({
       url: this.config.url({
         path: "/completions",
         modelId: this.modelId
       }),
       headers: (0, import_provider_utils4.combineHeaders)(this.config.headers(), options.headers),
-      body: {
-        ...args,
-        stream: true,
-        // only include stream_options when in strict compatibility mode:
-        stream_options: this.config.compatibility === "strict" ? { include_usage: true } : void 0
-      },
+      body,
       failedResponseHandler: openaiFailedResponseHandler,
       successfulResponseHandler: (0, import_provider_utils4.createEventSourceResponseHandler)(
         openaiCompletionChunkSchema
@@ -4653,11 +4710,12 @@ var OpenAICompletionLanguageModel = class {
       ),
       rawCall: { rawPrompt, rawSettings },
       rawResponse: { headers: responseHeaders },
-      warnings
+      warnings,
+      request: { body: JSON.stringify(body) }
     };
   }
 };
-var openAICompletionResponseSchema = import_zod3.z.object({
+var openaiCompletionResponseSchema = import_zod3.z.object({
   id: import_zod3.z.string().nullish(),
   created: import_zod3.z.number().nullish(),
   model: import_zod3.z.string().nullish(),
@@ -4699,62 +4757,12 @@ var openaiCompletionChunkSchema = import_zod3.z.union([
       completion_tokens: import_zod3.z.number()
     }).nullish()
   }),
-  openAIErrorDataSchema
+  openaiErrorDataSchema
 ]);
 
-// src/openai-facade.ts
-var OpenAI = class {
-  /**
-   * Creates a new OpenAI provider instance.
-   */
-  constructor(options = {}) {
-    var _a, _b;
-    this.baseURL = (_b = (0, import_provider_utils5.withoutTrailingSlash)((_a = options.baseURL) != null ? _a : options.baseUrl)) != null ? _b : "https://api.openai.com/v1";
-    this.apiKey = options.apiKey;
-    this.organization = options.organization;
-    this.project = options.project;
-    this.headers = options.headers;
-  }
-  get baseConfig() {
-    return {
-      organization: this.organization,
-      baseURL: this.baseURL,
-      headers: () => ({
-        Authorization: `Bearer ${(0, import_provider_utils5.loadApiKey)({
-          apiKey: this.apiKey,
-          environmentVariableName: "OPENAI_API_KEY",
-          description: "OpenAI"
-        })}`,
-        "OpenAI-Organization": this.organization,
-        "OpenAI-Project": this.project,
-        ...this.headers
-      })
-    };
-  }
-  chat(modelId, settings = {}) {
-    return new OpenAIChatLanguageModel(modelId, settings, {
-      provider: "openai.chat",
-      ...this.baseConfig,
-      compatibility: "strict",
-      url: ({ path }) => `${this.baseURL}${path}`
-    });
-  }
-  completion(modelId, settings = {}) {
-    return new OpenAICompletionLanguageModel(modelId, settings, {
-      provider: "openai.completion",
-      ...this.baseConfig,
-      compatibility: "strict",
-      url: ({ path }) => `${this.baseURL}${path}`
-    });
-  }
-};
-
-// src/openai-provider.ts
-var import_provider_utils7 = __nccwpck_require__(1746);
-
 // src/openai-embedding-model.ts
-var import_provider5 = __nccwpck_require__(2466);
-var import_provider_utils6 = __nccwpck_require__(1746);
+var import_provider6 = __nccwpck_require__(2466);
+var import_provider_utils5 = __nccwpck_require__(1746);
 var import_zod4 = __nccwpck_require__(4809);
 var OpenAIEmbeddingModel = class {
   constructor(modelId, settings, config) {
@@ -4780,19 +4788,19 @@ var OpenAIEmbeddingModel = class {
     abortSignal
   }) {
     if (values.length > this.maxEmbeddingsPerCall) {
-      throw new import_provider5.TooManyEmbeddingValuesForCallError({
+      throw new import_provider6.TooManyEmbeddingValuesForCallError({
         provider: this.provider,
         modelId: this.modelId,
         maxEmbeddingsPerCall: this.maxEmbeddingsPerCall,
         values
       });
     }
-    const { responseHeaders, value: response } = await (0, import_provider_utils6.postJsonToApi)({
+    const { responseHeaders, value: response } = await (0, import_provider_utils5.postJsonToApi)({
       url: this.config.url({
         path: "/embeddings",
         modelId: this.modelId
       }),
-      headers: (0, import_provider_utils6.combineHeaders)(this.config.headers(), headers),
+      headers: (0, import_provider_utils5.combineHeaders)(this.config.headers(), headers),
       body: {
         model: this.modelId,
         input: values,
@@ -4801,7 +4809,7 @@ var OpenAIEmbeddingModel = class {
         user: this.settings.user
       },
       failedResponseHandler: openaiFailedResponseHandler,
-      successfulResponseHandler: (0, import_provider_utils6.createJsonResponseHandler)(
+      successfulResponseHandler: (0, import_provider_utils5.createJsonResponseHandler)(
         openaiTextEmbeddingResponseSchema
       ),
       abortSignal,
@@ -4819,12 +4827,63 @@ var openaiTextEmbeddingResponseSchema = import_zod4.z.object({
   usage: import_zod4.z.object({ prompt_tokens: import_zod4.z.number() }).nullish()
 });
 
+// src/openai-image-model.ts
+var import_provider_utils6 = __nccwpck_require__(1746);
+var import_zod5 = __nccwpck_require__(4809);
+var OpenAIImageModel = class {
+  constructor(modelId, config) {
+    this.specificationVersion = "v1";
+    this.modelId = modelId;
+    this.config = config;
+  }
+  get provider() {
+    return this.config.provider;
+  }
+  async doGenerate({
+    prompt,
+    n,
+    size,
+    providerOptions,
+    headers,
+    abortSignal
+  }) {
+    var _a;
+    const { value: response } = await (0, import_provider_utils6.postJsonToApi)({
+      url: this.config.url({
+        path: "/images/generations",
+        modelId: this.modelId
+      }),
+      headers: (0, import_provider_utils6.combineHeaders)(this.config.headers(), headers),
+      body: {
+        model: this.modelId,
+        prompt,
+        n,
+        size,
+        ...(_a = providerOptions.openai) != null ? _a : {},
+        response_format: "b64_json"
+      },
+      failedResponseHandler: openaiFailedResponseHandler,
+      successfulResponseHandler: (0, import_provider_utils6.createJsonResponseHandler)(
+        openaiImageResponseSchema
+      ),
+      abortSignal,
+      fetch: this.config.fetch
+    });
+    return {
+      images: response.data.map((item) => item.b64_json)
+    };
+  }
+};
+var openaiImageResponseSchema = import_zod5.z.object({
+  data: import_zod5.z.array(import_zod5.z.object({ b64_json: import_zod5.z.string() }))
+});
+
 // src/openai-provider.ts
 function createOpenAI(options = {}) {
-  var _a, _b, _c, _d;
-  const baseURL = (_b = (0, import_provider_utils7.withoutTrailingSlash)((_a = options.baseURL) != null ? _a : options.baseUrl)) != null ? _b : "https://api.openai.com/v1";
-  const compatibility = (_c = options.compatibility) != null ? _c : "compatible";
-  const providerName = (_d = options.name) != null ? _d : "openai";
+  var _a, _b, _c;
+  const baseURL = (_a = (0, import_provider_utils7.withoutTrailingSlash)(options.baseURL)) != null ? _a : "https://api.openai.com/v1";
+  const compatibility = (_b = options.compatibility) != null ? _b : "compatible";
+  const providerName = (_c = options.name) != null ? _c : "openai";
   const getHeaders = () => ({
     Authorization: `Bearer ${(0, import_provider_utils7.loadApiKey)({
       apiKey: options.apiKey,
@@ -4855,6 +4914,12 @@ function createOpenAI(options = {}) {
     headers: getHeaders,
     fetch: options.fetch
   });
+  const createImageModel = (modelId) => new OpenAIImageModel(modelId, {
+    provider: `${providerName}.image`,
+    url: ({ path }) => `${baseURL}${path}`,
+    headers: getHeaders,
+    fetch: options.fetch
+  });
   const createLanguageModel = (modelId, settings) => {
     if (new.target) {
       throw new Error(
@@ -4878,6 +4943,7 @@ function createOpenAI(options = {}) {
   provider.embedding = createEmbeddingModel;
   provider.textEmbedding = createEmbeddingModel;
   provider.textEmbeddingModel = createEmbeddingModel;
+  provider.image = createImageModel;
   return provider;
 }
 var openai = createOpenAI({
@@ -4928,7 +4994,7 @@ var src_exports = {};
 __export(src_exports, {
   asValidator: () => asValidator,
   combineHeaders: () => combineHeaders,
-  convertAsyncGeneratorToReadableStream: () => convertAsyncGeneratorToReadableStream,
+  convertAsyncIteratorToReadableStream: () => convertAsyncIteratorToReadableStream,
   convertBase64ToUint8Array: () => convertBase64ToUint8Array,
   convertUint8ArrayToBase64: () => convertUint8ArrayToBase64,
   createEventSourceResponseHandler: () => createEventSourceResponseHandler,
@@ -4941,7 +5007,6 @@ __export(src_exports, {
   getErrorMessage: () => getErrorMessage,
   isAbortError: () => isAbortError,
   isParsableJson: () => isParsableJson,
-  isParseableJson: () => isParseableJson,
   isValidator: () => isValidator,
   loadApiKey: () => loadApiKey,
   loadOptionalSetting: () => loadOptionalSetting,
@@ -4949,6 +5014,7 @@ __export(src_exports, {
   parseJSON: () => parseJSON,
   postJsonToApi: () => postJsonToApi,
   postToApi: () => postToApi,
+  resolve: () => resolve,
   safeParseJSON: () => safeParseJSON,
   safeValidateTypes: () => safeValidateTypes,
   validateTypes: () => validateTypes,
@@ -4970,8 +5036,8 @@ function combineHeaders(...headers) {
   );
 }
 
-// src/convert-async-generator-to-readable-stream.ts
-function convertAsyncGeneratorToReadableStream(stream) {
+// src/convert-async-iterator-to-readable-stream.ts
+function convertAsyncIteratorToReadableStream(iterator) {
   return new ReadableStream({
     /**
      * Called when the consumer wants to pull more data from the stream.
@@ -4981,7 +5047,7 @@ function convertAsyncGeneratorToReadableStream(stream) {
      */
     async pull(controller) {
       try {
-        const { value, done } = await stream.next();
+        const { value, done } = await iterator.next();
         if (done) {
           controller.close();
         } else {
@@ -5009,14 +5075,25 @@ function extractResponseHeaders(response) {
 }
 
 // src/generate-id.ts
+var import_provider = __nccwpck_require__(2466);
 var import_non_secure = __nccwpck_require__(4910);
 var createIdGenerator = ({
-  prefix = "",
-  size: defaultSize = 7,
-  alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+  prefix,
+  size: defaultSize = 16,
+  alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+  separator = "-"
 } = {}) => {
   const generator = (0, import_non_secure.customAlphabet)(alphabet, defaultSize);
-  return (size) => `${prefix}${generator(size)}`;
+  if (prefix == null) {
+    return generator;
+  }
+  if (alphabet.includes(separator)) {
+    throw new import_provider.InvalidArgumentError({
+      argument: "separator",
+      message: `The separator "${separator}" must not be part of the alphabet "${alphabet}".`
+    });
+  }
+  return (size) => `${prefix}${separator}${generator(size)}`;
 };
 var generateId = createIdGenerator();
 
@@ -5040,7 +5117,7 @@ function isAbortError(error) {
 }
 
 // src/load-api-key.ts
-var import_provider = __nccwpck_require__(2466);
+var import_provider2 = __nccwpck_require__(2466);
 function loadApiKey({
   apiKey,
   environmentVariableName,
@@ -5051,62 +5128,27 @@ function loadApiKey({
     return apiKey;
   }
   if (apiKey != null) {
-    throw new import_provider.LoadAPIKeyError({
+    throw new import_provider2.LoadAPIKeyError({
       message: `${description} API key must be a string.`
     });
   }
   if (typeof process === "undefined") {
-    throw new import_provider.LoadAPIKeyError({
+    throw new import_provider2.LoadAPIKeyError({
       message: `${description} API key is missing. Pass it using the '${apiKeyParameterName}' parameter. Environment variables is not supported in this environment.`
     });
   }
   apiKey = process.env[environmentVariableName];
   if (apiKey == null) {
-    throw new import_provider.LoadAPIKeyError({
+    throw new import_provider2.LoadAPIKeyError({
       message: `${description} API key is missing. Pass it using the '${apiKeyParameterName}' parameter or the ${environmentVariableName} environment variable.`
     });
   }
   if (typeof apiKey !== "string") {
-    throw new import_provider.LoadAPIKeyError({
+    throw new import_provider2.LoadAPIKeyError({
       message: `${description} API key must be a string. The value of the ${environmentVariableName} environment variable is not a string.`
     });
   }
   return apiKey;
-}
-
-// src/load-setting.ts
-var import_provider2 = __nccwpck_require__(2466);
-function loadSetting({
-  settingValue,
-  environmentVariableName,
-  settingName,
-  description
-}) {
-  if (typeof settingValue === "string") {
-    return settingValue;
-  }
-  if (settingValue != null) {
-    throw new import_provider2.LoadSettingError({
-      message: `${description} setting must be a string.`
-    });
-  }
-  if (typeof process === "undefined") {
-    throw new import_provider2.LoadSettingError({
-      message: `${description} setting is missing. Pass it using the '${settingName}' parameter. Environment variables is not supported in this environment.`
-    });
-  }
-  settingValue = process.env[environmentVariableName];
-  if (settingValue == null) {
-    throw new import_provider2.LoadSettingError({
-      message: `${description} setting is missing. Pass it using the '${settingName}' parameter or the ${environmentVariableName} environment variable.`
-    });
-  }
-  if (typeof settingValue !== "string") {
-    throw new import_provider2.LoadSettingError({
-      message: `${description} setting must be a string. The value of the ${environmentVariableName} environment variable is not a string.`
-    });
-  }
-  return settingValue;
 }
 
 // src/load-optional-setting.ts
@@ -5127,12 +5169,47 @@ function loadOptionalSetting({
   return settingValue;
 }
 
+// src/load-setting.ts
+var import_provider3 = __nccwpck_require__(2466);
+function loadSetting({
+  settingValue,
+  environmentVariableName,
+  settingName,
+  description
+}) {
+  if (typeof settingValue === "string") {
+    return settingValue;
+  }
+  if (settingValue != null) {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting must be a string.`
+    });
+  }
+  if (typeof process === "undefined") {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting is missing. Pass it using the '${settingName}' parameter. Environment variables is not supported in this environment.`
+    });
+  }
+  settingValue = process.env[environmentVariableName];
+  if (settingValue == null) {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting is missing. Pass it using the '${settingName}' parameter or the ${environmentVariableName} environment variable.`
+    });
+  }
+  if (typeof settingValue !== "string") {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting must be a string. The value of the ${environmentVariableName} environment variable is not a string.`
+    });
+  }
+  return settingValue;
+}
+
 // src/parse-json.ts
-var import_provider4 = __nccwpck_require__(2466);
+var import_provider5 = __nccwpck_require__(2466);
 var import_secure_json_parse = __toESM(__nccwpck_require__(2084));
 
 // src/validate-types.ts
-var import_provider3 = __nccwpck_require__(2466);
+var import_provider4 = __nccwpck_require__(2466);
 
 // src/validator.ts
 var validatorSymbol = Symbol.for("vercel.ai.validator");
@@ -5159,7 +5236,7 @@ function validateTypes({
 }) {
   const result = safeValidateTypes({ value, schema: inputSchema });
   if (!result.success) {
-    throw import_provider3.TypeValidationError.wrap({ value, cause: result.error });
+    throw import_provider4.TypeValidationError.wrap({ value, cause: result.error });
   }
   return result.value;
 }
@@ -5178,12 +5255,12 @@ function safeValidateTypes({
     }
     return {
       success: false,
-      error: import_provider3.TypeValidationError.wrap({ value, cause: result.error })
+      error: import_provider4.TypeValidationError.wrap({ value, cause: result.error })
     };
   } catch (error) {
     return {
       success: false,
-      error: import_provider3.TypeValidationError.wrap({ value, cause: error })
+      error: import_provider4.TypeValidationError.wrap({ value, cause: error })
     };
   }
 }
@@ -5200,10 +5277,10 @@ function parseJSON({
     }
     return validateTypes({ value, schema });
   } catch (error) {
-    if (import_provider4.JSONParseError.isJSONParseError(error) || import_provider4.TypeValidationError.isTypeValidationError(error)) {
+    if (import_provider5.JSONParseError.isInstance(error) || import_provider5.TypeValidationError.isInstance(error)) {
       throw error;
     }
-    throw new import_provider4.JSONParseError({ text, cause: error });
+    throw new import_provider5.JSONParseError({ text, cause: error });
   }
 }
 function safeParseJSON({
@@ -5222,7 +5299,7 @@ function safeParseJSON({
   } catch (error) {
     return {
       success: false,
-      error: import_provider4.JSONParseError.isJSONParseError(error) ? error : new import_provider4.JSONParseError({ text, cause: error })
+      error: import_provider5.JSONParseError.isInstance(error) ? error : new import_provider5.JSONParseError({ text, cause: error })
     };
   }
 }
@@ -5234,10 +5311,9 @@ function isParsableJson(input) {
     return false;
   }
 }
-var isParseableJson = isParsableJson;
 
 // src/post-to-api.ts
-var import_provider5 = __nccwpck_require__(2466);
+var import_provider6 = __nccwpck_require__(2466);
 
 // src/remove-undefined-entries.ts
 function removeUndefinedEntries(record) {
@@ -5297,10 +5373,10 @@ var postToApi = async ({
           requestBodyValues: body.values
         });
       } catch (error) {
-        if (isAbortError(error) || import_provider5.APICallError.isAPICallError(error)) {
+        if (isAbortError(error) || import_provider6.APICallError.isInstance(error)) {
           throw error;
         }
-        throw new import_provider5.APICallError({
+        throw new import_provider6.APICallError({
           message: "Failed to process error response",
           cause: error,
           statusCode: response.status,
@@ -5319,11 +5395,11 @@ var postToApi = async ({
       });
     } catch (error) {
       if (error instanceof Error) {
-        if (isAbortError(error) || import_provider5.APICallError.isAPICallError(error)) {
+        if (isAbortError(error) || import_provider6.APICallError.isInstance(error)) {
           throw error;
         }
       }
-      throw new import_provider5.APICallError({
+      throw new import_provider6.APICallError({
         message: "Failed to process successful response",
         cause: error,
         statusCode: response.status,
@@ -5339,7 +5415,7 @@ var postToApi = async ({
     if (error instanceof TypeError && error.message === "fetch failed") {
       const cause = error.cause;
       if (cause != null) {
-        throw new import_provider5.APICallError({
+        throw new import_provider6.APICallError({
           message: `Cannot connect to API: ${cause.message}`,
           cause,
           url,
@@ -5353,8 +5429,16 @@ var postToApi = async ({
   }
 };
 
+// src/resolve.ts
+async function resolve(value) {
+  if (typeof value === "function") {
+    value = value();
+  }
+  return Promise.resolve(value);
+}
+
 // src/response-handler.ts
-var import_provider6 = __nccwpck_require__(2466);
+var import_provider7 = __nccwpck_require__(2466);
 var import_stream = __nccwpck_require__(9201);
 var createJsonErrorResponseHandler = ({
   errorSchema,
@@ -5366,7 +5450,7 @@ var createJsonErrorResponseHandler = ({
   if (responseBody.trim() === "") {
     return {
       responseHeaders,
-      value: new import_provider6.APICallError({
+      value: new import_provider7.APICallError({
         message: response.statusText,
         url,
         requestBodyValues,
@@ -5384,7 +5468,7 @@ var createJsonErrorResponseHandler = ({
     });
     return {
       responseHeaders,
-      value: new import_provider6.APICallError({
+      value: new import_provider7.APICallError({
         message: errorToMessage(parsedError),
         url,
         requestBodyValues,
@@ -5398,7 +5482,7 @@ var createJsonErrorResponseHandler = ({
   } catch (parseError) {
     return {
       responseHeaders,
-      value: new import_provider6.APICallError({
+      value: new import_provider7.APICallError({
         message: response.statusText,
         url,
         requestBodyValues,
@@ -5413,7 +5497,7 @@ var createJsonErrorResponseHandler = ({
 var createEventSourceResponseHandler = (chunkSchema) => async ({ response }) => {
   const responseHeaders = extractResponseHeaders(response);
   if (response.body == null) {
-    throw new import_provider6.EmptyResponseBodyError({});
+    throw new import_provider7.EmptyResponseBodyError({});
   }
   return {
     responseHeaders,
@@ -5437,7 +5521,7 @@ var createEventSourceResponseHandler = (chunkSchema) => async ({ response }) => 
 var createJsonStreamResponseHandler = (chunkSchema) => async ({ response }) => {
   const responseHeaders = extractResponseHeaders(response);
   if (response.body == null) {
-    throw new import_provider6.EmptyResponseBodyError({});
+    throw new import_provider7.EmptyResponseBodyError({});
   }
   let buffer = "";
   return {
@@ -5469,7 +5553,7 @@ var createJsonResponseHandler = (responseSchema) => async ({ response, url, requ
   });
   const responseHeaders = extractResponseHeaders(response);
   if (!parsedResult.success) {
-    throw new import_provider6.APICallError({
+    throw new import_provider7.APICallError({
       message: "Invalid JSON response",
       cause: parsedResult.error,
       statusCode: response.status,
@@ -5520,8 +5604,8 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
-  for (var name13 in all)
-    __defProp(target, name13, { get: all[name13], enumerable: true });
+  for (var name14 in all)
+    __defProp(target, name14, { get: all[name14], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -5539,6 +5623,7 @@ __export(src_exports, {
   AISDKError: () => AISDKError,
   APICallError: () => APICallError,
   EmptyResponseBodyError: () => EmptyResponseBodyError,
+  InvalidArgumentError: () => InvalidArgumentError,
   InvalidPromptError: () => InvalidPromptError,
   InvalidResponseDataError: () => InvalidResponseDataError,
   JSONParseError: () => JSONParseError,
@@ -5570,13 +5655,13 @@ var _AISDKError = class _AISDKError extends Error {
    * @param {unknown} [params.cause] - The underlying cause of the error.
    */
   constructor({
-    name: name13,
+    name: name14,
     message,
     cause
   }) {
     super(message);
     this[_a] = true;
-    this.name = name13;
+    this.name = name14;
     this.cause = cause;
   }
   /**
@@ -5587,21 +5672,9 @@ var _AISDKError = class _AISDKError extends Error {
   static isInstance(error) {
     return _AISDKError.hasMarker(error, marker);
   }
-  static hasMarker(error, marker14) {
-    const markerSymbol = Symbol.for(marker14);
+  static hasMarker(error, marker15) {
+    const markerSymbol = Symbol.for(marker15);
     return error != null && typeof error === "object" && markerSymbol in error && typeof error[markerSymbol] === "boolean" && error[markerSymbol] === true;
-  }
-  /**
-   * Returns a JSON representation of the error.
-   * @returns {Object} An object containing the error's name, message, and cause.
-   *
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message
-    };
   }
 };
 _a = symbol;
@@ -5641,29 +5714,6 @@ var APICallError = class extends AISDKError {
   static isInstance(error) {
     return AISDKError.hasMarker(error, marker2);
   }
-  /**
-   * @deprecated Use isInstance instead.
-   */
-  static isAPICallError(error) {
-    return error instanceof Error && error.name === name && typeof error.url === "string" && typeof error.requestBodyValues === "object" && (error.statusCode == null || typeof error.statusCode === "number") && (error.responseHeaders == null || typeof error.responseHeaders === "object") && (error.responseBody == null || typeof error.responseBody === "string") && (error.cause == null || typeof error.cause === "object") && typeof error.isRetryable === "boolean" && (error.data == null || typeof error.data === "object");
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      url: this.url,
-      requestBodyValues: this.requestBodyValues,
-      statusCode: this.statusCode,
-      responseHeaders: this.responseHeaders,
-      responseBody: this.responseBody,
-      cause: this.cause,
-      isRetryable: this.isRetryable,
-      data: this.data
-    };
-  }
 };
 _a2 = symbol2;
 
@@ -5680,12 +5730,6 @@ var EmptyResponseBodyError = class extends AISDKError {
   }
   static isInstance(error) {
     return AISDKError.hasMarker(error, marker3);
-  }
-  /**
-   * @deprecated use `isInstance` instead
-   */
-  static isEmptyResponseBodyError(error) {
-    return error instanceof Error && error.name === name2;
   }
 };
 _a3 = symbol3;
@@ -5704,150 +5748,96 @@ function getErrorMessage(error) {
   return JSON.stringify(error);
 }
 
-// src/errors/invalid-prompt-error.ts
-var name3 = "AI_InvalidPromptError";
+// src/errors/invalid-argument-error.ts
+var name3 = "AI_InvalidArgumentError";
 var marker4 = `vercel.ai.error.${name3}`;
 var symbol4 = Symbol.for(marker4);
 var _a4;
-var InvalidPromptError = class extends AISDKError {
+var InvalidArgumentError = class extends AISDKError {
   constructor({
-    prompt: prompt2,
     message,
-    cause
+    cause,
+    argument
   }) {
-    super({ name: name3, message: `Invalid prompt: ${message}`, cause });
+    super({ name: name3, message, cause });
     this[_a4] = true;
-    this.prompt = prompt2;
+    this.argument = argument;
   }
   static isInstance(error) {
     return AISDKError.hasMarker(error, marker4);
   }
-  /**
-   * @deprecated use `isInstance` instead
-   */
-  static isInvalidPromptError(error) {
-    return error instanceof Error && error.name === name3 && prompt != null;
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      stack: this.stack,
-      prompt: this.prompt
-    };
-  }
 };
 _a4 = symbol4;
 
-// src/errors/invalid-response-data-error.ts
-var name4 = "AI_InvalidResponseDataError";
+// src/errors/invalid-prompt-error.ts
+var name4 = "AI_InvalidPromptError";
 var marker5 = `vercel.ai.error.${name4}`;
 var symbol5 = Symbol.for(marker5);
 var _a5;
+var InvalidPromptError = class extends AISDKError {
+  constructor({
+    prompt,
+    message,
+    cause
+  }) {
+    super({ name: name4, message: `Invalid prompt: ${message}`, cause });
+    this[_a5] = true;
+    this.prompt = prompt;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker5);
+  }
+};
+_a5 = symbol5;
+
+// src/errors/invalid-response-data-error.ts
+var name5 = "AI_InvalidResponseDataError";
+var marker6 = `vercel.ai.error.${name5}`;
+var symbol6 = Symbol.for(marker6);
+var _a6;
 var InvalidResponseDataError = class extends AISDKError {
   constructor({
     data,
     message = `Invalid response data: ${JSON.stringify(data)}.`
   }) {
-    super({ name: name4, message });
-    this[_a5] = true;
-    this.data = data;
-  }
-  static isInstance(error) {
-    return AISDKError.hasMarker(error, marker5);
-  }
-  /**
-   * @deprecated use `isInstance` instead
-   */
-  static isInvalidResponseDataError(error) {
-    return error instanceof Error && error.name === name4 && error.data != null;
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      stack: this.stack,
-      data: this.data
-    };
-  }
-};
-_a5 = symbol5;
-
-// src/errors/json-parse-error.ts
-var name5 = "AI_JSONParseError";
-var marker6 = `vercel.ai.error.${name5}`;
-var symbol6 = Symbol.for(marker6);
-var _a6;
-var JSONParseError = class extends AISDKError {
-  constructor({ text, cause }) {
-    super({
-      name: name5,
-      message: `JSON parsing failed: Text: ${text}.
-Error message: ${getErrorMessage(cause)}`,
-      cause
-    });
+    super({ name: name5, message });
     this[_a6] = true;
-    this.text = text;
+    this.data = data;
   }
   static isInstance(error) {
     return AISDKError.hasMarker(error, marker6);
   }
-  /**
-   * @deprecated use `isInstance` instead
-   */
-  static isJSONParseError(error) {
-    return error instanceof Error && error.name === name5 && "text" in error && typeof error.text === "string";
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      cause: this.cause,
-      stack: this.stack,
-      valueText: this.text
-    };
-  }
 };
 _a6 = symbol6;
 
-// src/errors/load-api-key-error.ts
-var name6 = "AI_LoadAPIKeyError";
+// src/errors/json-parse-error.ts
+var name6 = "AI_JSONParseError";
 var marker7 = `vercel.ai.error.${name6}`;
 var symbol7 = Symbol.for(marker7);
 var _a7;
-var LoadAPIKeyError = class extends AISDKError {
-  // used in isInstance
-  constructor({ message }) {
-    super({ name: name6, message });
+var JSONParseError = class extends AISDKError {
+  constructor({ text, cause }) {
+    super({
+      name: name6,
+      message: `JSON parsing failed: Text: ${text}.
+Error message: ${getErrorMessage(cause)}`,
+      cause
+    });
     this[_a7] = true;
+    this.text = text;
   }
   static isInstance(error) {
     return AISDKError.hasMarker(error, marker7);
   }
-  /**
-   * @deprecated Use isInstance instead.
-   */
-  static isLoadAPIKeyError(error) {
-    return error instanceof Error && error.name === name6;
-  }
 };
 _a7 = symbol7;
 
-// src/errors/load-setting-error.ts
-var name7 = "AI_LoadSettingError";
+// src/errors/load-api-key-error.ts
+var name7 = "AI_LoadAPIKeyError";
 var marker8 = `vercel.ai.error.${name7}`;
 var symbol8 = Symbol.for(marker8);
 var _a8;
-var LoadSettingError = class extends AISDKError {
+var LoadAPIKeyError = class extends AISDKError {
   // used in isInstance
   constructor({ message }) {
     super({ name: name7, message });
@@ -5856,153 +5846,109 @@ var LoadSettingError = class extends AISDKError {
   static isInstance(error) {
     return AISDKError.hasMarker(error, marker8);
   }
-  /**
-   * @deprecated Use isInstance instead.
-   */
-  static isLoadSettingError(error) {
-    return error instanceof Error && error.name === name7;
-  }
 };
 _a8 = symbol8;
 
-// src/errors/no-content-generated-error.ts
-var name8 = "AI_NoContentGeneratedError";
+// src/errors/load-setting-error.ts
+var name8 = "AI_LoadSettingError";
 var marker9 = `vercel.ai.error.${name8}`;
 var symbol9 = Symbol.for(marker9);
 var _a9;
-var NoContentGeneratedError = class extends AISDKError {
+var LoadSettingError = class extends AISDKError {
   // used in isInstance
-  constructor({
-    message = "No content generated."
-  } = {}) {
+  constructor({ message }) {
     super({ name: name8, message });
     this[_a9] = true;
   }
   static isInstance(error) {
     return AISDKError.hasMarker(error, marker9);
   }
-  /**
-   * @deprecated Use isInstance instead.
-   */
-  static isNoContentGeneratedError(error) {
-    return error instanceof Error && error.name === name8;
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      cause: this.cause,
-      message: this.message,
-      stack: this.stack
-    };
-  }
 };
 _a9 = symbol9;
 
-// src/errors/no-such-model-error.ts
-var name9 = "AI_NoSuchModelError";
+// src/errors/no-content-generated-error.ts
+var name9 = "AI_NoContentGeneratedError";
 var marker10 = `vercel.ai.error.${name9}`;
 var symbol10 = Symbol.for(marker10);
 var _a10;
+var NoContentGeneratedError = class extends AISDKError {
+  // used in isInstance
+  constructor({
+    message = "No content generated."
+  } = {}) {
+    super({ name: name9, message });
+    this[_a10] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker10);
+  }
+};
+_a10 = symbol10;
+
+// src/errors/no-such-model-error.ts
+var name10 = "AI_NoSuchModelError";
+var marker11 = `vercel.ai.error.${name10}`;
+var symbol11 = Symbol.for(marker11);
+var _a11;
 var NoSuchModelError = class extends AISDKError {
   constructor({
-    errorName = name9,
+    errorName = name10,
     modelId,
     modelType,
     message = `No such ${modelType}: ${modelId}`
   }) {
     super({ name: errorName, message });
-    this[_a10] = true;
+    this[_a11] = true;
     this.modelId = modelId;
     this.modelType = modelType;
   }
   static isInstance(error) {
-    return AISDKError.hasMarker(error, marker10);
-  }
-  /**
-   * @deprecated use `isInstance` instead
-   */
-  static isNoSuchModelError(error) {
-    return error instanceof Error && error.name === name9 && typeof error.modelId === "string" && typeof error.modelType === "string";
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      stack: this.stack,
-      modelId: this.modelId,
-      modelType: this.modelType
-    };
+    return AISDKError.hasMarker(error, marker11);
   }
 };
-_a10 = symbol10;
+_a11 = symbol11;
 
 // src/errors/too-many-embedding-values-for-call-error.ts
-var name10 = "AI_TooManyEmbeddingValuesForCallError";
-var marker11 = `vercel.ai.error.${name10}`;
-var symbol11 = Symbol.for(marker11);
-var _a11;
+var name11 = "AI_TooManyEmbeddingValuesForCallError";
+var marker12 = `vercel.ai.error.${name11}`;
+var symbol12 = Symbol.for(marker12);
+var _a12;
 var TooManyEmbeddingValuesForCallError = class extends AISDKError {
   constructor(options) {
     super({
-      name: name10,
+      name: name11,
       message: `Too many values for a single embedding call. The ${options.provider} model "${options.modelId}" can only embed up to ${options.maxEmbeddingsPerCall} values per call, but ${options.values.length} values were provided.`
     });
-    this[_a11] = true;
+    this[_a12] = true;
     this.provider = options.provider;
     this.modelId = options.modelId;
     this.maxEmbeddingsPerCall = options.maxEmbeddingsPerCall;
     this.values = options.values;
   }
   static isInstance(error) {
-    return AISDKError.hasMarker(error, marker11);
-  }
-  /**
-   * @deprecated use `isInstance` instead
-   */
-  static isTooManyEmbeddingValuesForCallError(error) {
-    return error instanceof Error && error.name === name10 && "provider" in error && typeof error.provider === "string" && "modelId" in error && typeof error.modelId === "string" && "maxEmbeddingsPerCall" in error && typeof error.maxEmbeddingsPerCall === "number" && "values" in error && Array.isArray(error.values);
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      stack: this.stack,
-      provider: this.provider,
-      modelId: this.modelId,
-      maxEmbeddingsPerCall: this.maxEmbeddingsPerCall,
-      values: this.values
-    };
+    return AISDKError.hasMarker(error, marker12);
   }
 };
-_a11 = symbol11;
+_a12 = symbol12;
 
 // src/errors/type-validation-error.ts
-var name11 = "AI_TypeValidationError";
-var marker12 = `vercel.ai.error.${name11}`;
-var symbol12 = Symbol.for(marker12);
-var _a12;
+var name12 = "AI_TypeValidationError";
+var marker13 = `vercel.ai.error.${name12}`;
+var symbol13 = Symbol.for(marker13);
+var _a13;
 var _TypeValidationError = class _TypeValidationError extends AISDKError {
   constructor({ value, cause }) {
     super({
-      name: name11,
+      name: name12,
       message: `Type validation failed: Value: ${JSON.stringify(value)}.
 Error message: ${getErrorMessage(cause)}`,
       cause
     });
-    this[_a12] = true;
+    this[_a13] = true;
     this.value = value;
   }
   static isInstance(error) {
-    return AISDKError.hasMarker(error, marker12);
+    return AISDKError.hasMarker(error, marker13);
   }
   /**
    * Wraps an error into a TypeValidationError.
@@ -6020,64 +5966,29 @@ Error message: ${getErrorMessage(cause)}`,
   }) {
     return _TypeValidationError.isInstance(cause) && cause.value === value ? cause : new _TypeValidationError({ value, cause });
   }
-  /**
-   * @deprecated use `isInstance` instead
-   */
-  static isTypeValidationError(error) {
-    return error instanceof Error && error.name === name11;
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      cause: this.cause,
-      stack: this.stack,
-      value: this.value
-    };
-  }
 };
-_a12 = symbol12;
+_a13 = symbol13;
 var TypeValidationError = _TypeValidationError;
 
 // src/errors/unsupported-functionality-error.ts
-var name12 = "AI_UnsupportedFunctionalityError";
-var marker13 = `vercel.ai.error.${name12}`;
-var symbol13 = Symbol.for(marker13);
-var _a13;
+var name13 = "AI_UnsupportedFunctionalityError";
+var marker14 = `vercel.ai.error.${name13}`;
+var symbol14 = Symbol.for(marker14);
+var _a14;
 var UnsupportedFunctionalityError = class extends AISDKError {
   constructor({ functionality }) {
     super({
-      name: name12,
+      name: name13,
       message: `'${functionality}' functionality not supported.`
     });
-    this[_a13] = true;
+    this[_a14] = true;
     this.functionality = functionality;
   }
   static isInstance(error) {
-    return AISDKError.hasMarker(error, marker13);
-  }
-  /**
-   * @deprecated Use isInstance instead.
-   */
-  static isUnsupportedFunctionalityError(error) {
-    return error instanceof Error && error.name === name12 && typeof error.functionality === "string";
-  }
-  /**
-   * @deprecated Do not use this method. It will be removed in the next major version.
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      stack: this.stack,
-      functionality: this.functionality
-    };
+    return AISDKError.hasMarker(error, marker14);
   }
 };
-_a13 = symbol13;
+_a14 = symbol14;
 
 // src/json-value/is-json.ts
 function isJSONValue(value) {
@@ -6161,10 +6072,10 @@ __export(src_exports, {
   zodSchema: () => zodSchema
 });
 module.exports = __toCommonJS(src_exports);
-var import_provider_utils3 = __nccwpck_require__(1746);
+var import_provider_utils3 = __nccwpck_require__(8296);
 
 // src/process-data-protocol-response.ts
-var import_provider_utils = __nccwpck_require__(1746);
+var import_provider_utils = __nccwpck_require__(8296);
 
 // src/parse-partial-json.ts
 var import_secure_json_parse = __toESM(__nccwpck_require__(2084));
@@ -6883,7 +6794,7 @@ async function processDataProtocolResponse({
   let nextPrefixMap = void 0;
   const previousMessages = [];
   const data = [];
-  let message_annotations = void 0;
+  let messageAnnotations = void 0;
   const partialToolCalls = {};
   let usage = {
     completionTokens: NaN,
@@ -6915,7 +6826,7 @@ async function processDataProtocolResponse({
       }
       continue;
     }
-    if (nextPrefixMap) {
+    if (nextPrefixMap != null && (type === "text" || type === "tool_call" || type === "tool_call_streaming_start" || type === "tool_call_delta" || type === "tool_result")) {
       if (prefixMap.text) {
         previousMessages.push(prefixMap.text);
       }
@@ -7051,37 +6962,40 @@ async function processDataProtocolResponse({
     }
     let responseMessage = prefixMap["text"];
     if (type === "message_annotations") {
-      if (!message_annotations) {
-        message_annotations = [...value];
+      if (!messageAnnotations) {
+        messageAnnotations = [...value];
       } else {
-        message_annotations.push(...value);
+        messageAnnotations.push(...value);
       }
       functionCallMessage = assignAnnotationsToMessage(
         prefixMap["function_call"],
-        message_annotations
+        messageAnnotations
       );
       toolCallMessage = assignAnnotationsToMessage(
         prefixMap["tool_calls"],
-        message_annotations
+        messageAnnotations
       );
       responseMessage = assignAnnotationsToMessage(
         prefixMap["text"],
-        message_annotations
+        messageAnnotations
       );
+      if (prefixMap.text != null) {
+        prefixMap.text.internalUpdateId = generateId2();
+      }
     }
-    if (message_annotations == null ? void 0 : message_annotations.length) {
+    if (messageAnnotations == null ? void 0 : messageAnnotations.length) {
       if (prefixMap.text) {
-        prefixMap.text.annotations = [...message_annotations];
+        prefixMap.text.annotations = [...messageAnnotations];
       }
       if (prefixMap.function_call) {
-        prefixMap.function_call.annotations = [...message_annotations];
+        prefixMap.function_call.annotations = [...messageAnnotations];
       }
       if (prefixMap.tool_calls) {
-        prefixMap.tool_calls.annotations = [...message_annotations];
+        prefixMap.tool_calls.annotations = [...messageAnnotations];
       }
     }
     const merged = [functionCallMessage, toolCallMessage, responseMessage].filter(Boolean).map((message) => ({
-      ...assignAnnotationsToMessage(message, message_annotations)
+      ...assignAnnotationsToMessage(message, messageAnnotations)
     }));
     update([...previousMessages, ...merged], [...data]);
   }
@@ -7495,7 +7409,7 @@ async function processChatStream({
 }
 
 // src/schema.ts
-var import_provider_utils2 = __nccwpck_require__(1746);
+var import_provider_utils2 = __nccwpck_require__(8296);
 var import_zod_to_json_schema = __toESM(__nccwpck_require__(6885));
 var schemaSymbol = Symbol.for("vercel.ai.schema");
 function jsonSchema(jsonSchema2, {
@@ -7526,6 +7440,1257 @@ function zodSchema(zodSchema2) {
         return result.success ? { success: true, value: result.data } : { success: false, error: result.error };
       }
     }
+  );
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (0);
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 8296:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/index.ts
+var src_exports = {};
+__export(src_exports, {
+  asValidator: () => asValidator,
+  combineHeaders: () => combineHeaders,
+  convertAsyncGeneratorToReadableStream: () => convertAsyncGeneratorToReadableStream,
+  convertBase64ToUint8Array: () => convertBase64ToUint8Array,
+  convertUint8ArrayToBase64: () => convertUint8ArrayToBase64,
+  createEventSourceResponseHandler: () => createEventSourceResponseHandler,
+  createIdGenerator: () => createIdGenerator,
+  createJsonErrorResponseHandler: () => createJsonErrorResponseHandler,
+  createJsonResponseHandler: () => createJsonResponseHandler,
+  createJsonStreamResponseHandler: () => createJsonStreamResponseHandler,
+  extractResponseHeaders: () => extractResponseHeaders,
+  generateId: () => generateId,
+  getErrorMessage: () => getErrorMessage,
+  isAbortError: () => isAbortError,
+  isParsableJson: () => isParsableJson,
+  isParseableJson: () => isParseableJson,
+  isValidator: () => isValidator,
+  loadApiKey: () => loadApiKey,
+  loadOptionalSetting: () => loadOptionalSetting,
+  loadSetting: () => loadSetting,
+  parseJSON: () => parseJSON,
+  postJsonToApi: () => postJsonToApi,
+  postToApi: () => postToApi,
+  safeParseJSON: () => safeParseJSON,
+  safeValidateTypes: () => safeValidateTypes,
+  validateTypes: () => validateTypes,
+  validator: () => validator,
+  validatorSymbol: () => validatorSymbol,
+  withoutTrailingSlash: () => withoutTrailingSlash,
+  zodValidator: () => zodValidator
+});
+module.exports = __toCommonJS(src_exports);
+
+// src/combine-headers.ts
+function combineHeaders(...headers) {
+  return headers.reduce(
+    (combinedHeaders, currentHeaders) => ({
+      ...combinedHeaders,
+      ...currentHeaders != null ? currentHeaders : {}
+    }),
+    {}
+  );
+}
+
+// src/convert-async-generator-to-readable-stream.ts
+function convertAsyncGeneratorToReadableStream(stream) {
+  return new ReadableStream({
+    /**
+     * Called when the consumer wants to pull more data from the stream.
+     *
+     * @param {ReadableStreamDefaultController<T>} controller - The controller to enqueue data into the stream.
+     * @returns {Promise<void>}
+     */
+    async pull(controller) {
+      try {
+        const { value, done } = await stream.next();
+        if (done) {
+          controller.close();
+        } else {
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    /**
+     * Called when the consumer cancels the stream.
+     */
+    cancel() {
+    }
+  });
+}
+
+// src/extract-response-headers.ts
+function extractResponseHeaders(response) {
+  const headers = {};
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+  return headers;
+}
+
+// src/generate-id.ts
+var import_provider = __nccwpck_require__(4460);
+var import_non_secure = __nccwpck_require__(4910);
+var createIdGenerator = ({
+  prefix,
+  size: defaultSize = 7,
+  alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+  separator = "-"
+} = {}) => {
+  const generator = (0, import_non_secure.customAlphabet)(alphabet, defaultSize);
+  if (prefix == null) {
+    return generator;
+  }
+  if (alphabet.includes(separator)) {
+    throw new import_provider.InvalidArgumentError({
+      argument: "separator",
+      message: `The separator "${separator}" must not be part of the alphabet "${alphabet}".`
+    });
+  }
+  return (size) => `${prefix}${separator}${generator(size)}`;
+};
+var generateId = createIdGenerator();
+
+// src/get-error-message.ts
+function getErrorMessage(error) {
+  if (error == null) {
+    return "unknown error";
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return JSON.stringify(error);
+}
+
+// src/is-abort-error.ts
+function isAbortError(error) {
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
+}
+
+// src/load-api-key.ts
+var import_provider2 = __nccwpck_require__(4460);
+function loadApiKey({
+  apiKey,
+  environmentVariableName,
+  apiKeyParameterName = "apiKey",
+  description
+}) {
+  if (typeof apiKey === "string") {
+    return apiKey;
+  }
+  if (apiKey != null) {
+    throw new import_provider2.LoadAPIKeyError({
+      message: `${description} API key must be a string.`
+    });
+  }
+  if (typeof process === "undefined") {
+    throw new import_provider2.LoadAPIKeyError({
+      message: `${description} API key is missing. Pass it using the '${apiKeyParameterName}' parameter. Environment variables is not supported in this environment.`
+    });
+  }
+  apiKey = process.env[environmentVariableName];
+  if (apiKey == null) {
+    throw new import_provider2.LoadAPIKeyError({
+      message: `${description} API key is missing. Pass it using the '${apiKeyParameterName}' parameter or the ${environmentVariableName} environment variable.`
+    });
+  }
+  if (typeof apiKey !== "string") {
+    throw new import_provider2.LoadAPIKeyError({
+      message: `${description} API key must be a string. The value of the ${environmentVariableName} environment variable is not a string.`
+    });
+  }
+  return apiKey;
+}
+
+// src/load-setting.ts
+var import_provider3 = __nccwpck_require__(4460);
+function loadSetting({
+  settingValue,
+  environmentVariableName,
+  settingName,
+  description
+}) {
+  if (typeof settingValue === "string") {
+    return settingValue;
+  }
+  if (settingValue != null) {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting must be a string.`
+    });
+  }
+  if (typeof process === "undefined") {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting is missing. Pass it using the '${settingName}' parameter. Environment variables is not supported in this environment.`
+    });
+  }
+  settingValue = process.env[environmentVariableName];
+  if (settingValue == null) {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting is missing. Pass it using the '${settingName}' parameter or the ${environmentVariableName} environment variable.`
+    });
+  }
+  if (typeof settingValue !== "string") {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting must be a string. The value of the ${environmentVariableName} environment variable is not a string.`
+    });
+  }
+  return settingValue;
+}
+
+// src/load-optional-setting.ts
+function loadOptionalSetting({
+  settingValue,
+  environmentVariableName
+}) {
+  if (typeof settingValue === "string") {
+    return settingValue;
+  }
+  if (settingValue != null || typeof process === "undefined") {
+    return void 0;
+  }
+  settingValue = process.env[environmentVariableName];
+  if (settingValue == null || typeof settingValue !== "string") {
+    return void 0;
+  }
+  return settingValue;
+}
+
+// src/parse-json.ts
+var import_provider5 = __nccwpck_require__(4460);
+var import_secure_json_parse = __toESM(__nccwpck_require__(2084));
+
+// src/validate-types.ts
+var import_provider4 = __nccwpck_require__(4460);
+
+// src/validator.ts
+var validatorSymbol = Symbol.for("vercel.ai.validator");
+function validator(validate) {
+  return { [validatorSymbol]: true, validate };
+}
+function isValidator(value) {
+  return typeof value === "object" && value !== null && validatorSymbol in value && value[validatorSymbol] === true && "validate" in value;
+}
+function asValidator(value) {
+  return isValidator(value) ? value : zodValidator(value);
+}
+function zodValidator(zodSchema) {
+  return validator((value) => {
+    const result = zodSchema.safeParse(value);
+    return result.success ? { success: true, value: result.data } : { success: false, error: result.error };
+  });
+}
+
+// src/validate-types.ts
+function validateTypes({
+  value,
+  schema: inputSchema
+}) {
+  const result = safeValidateTypes({ value, schema: inputSchema });
+  if (!result.success) {
+    throw import_provider4.TypeValidationError.wrap({ value, cause: result.error });
+  }
+  return result.value;
+}
+function safeValidateTypes({
+  value,
+  schema
+}) {
+  const validator2 = asValidator(schema);
+  try {
+    if (validator2.validate == null) {
+      return { success: true, value };
+    }
+    const result = validator2.validate(value);
+    if (result.success) {
+      return result;
+    }
+    return {
+      success: false,
+      error: import_provider4.TypeValidationError.wrap({ value, cause: result.error })
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: import_provider4.TypeValidationError.wrap({ value, cause: error })
+    };
+  }
+}
+
+// src/parse-json.ts
+function parseJSON({
+  text,
+  schema
+}) {
+  try {
+    const value = import_secure_json_parse.default.parse(text);
+    if (schema == null) {
+      return value;
+    }
+    return validateTypes({ value, schema });
+  } catch (error) {
+    if (import_provider5.JSONParseError.isJSONParseError(error) || import_provider5.TypeValidationError.isTypeValidationError(error)) {
+      throw error;
+    }
+    throw new import_provider5.JSONParseError({ text, cause: error });
+  }
+}
+function safeParseJSON({
+  text,
+  schema
+}) {
+  try {
+    const value = import_secure_json_parse.default.parse(text);
+    if (schema == null) {
+      return {
+        success: true,
+        value
+      };
+    }
+    return safeValidateTypes({ value, schema });
+  } catch (error) {
+    return {
+      success: false,
+      error: import_provider5.JSONParseError.isJSONParseError(error) ? error : new import_provider5.JSONParseError({ text, cause: error })
+    };
+  }
+}
+function isParsableJson(input) {
+  try {
+    import_secure_json_parse.default.parse(input);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+var isParseableJson = isParsableJson;
+
+// src/post-to-api.ts
+var import_provider6 = __nccwpck_require__(4460);
+
+// src/remove-undefined-entries.ts
+function removeUndefinedEntries(record) {
+  return Object.fromEntries(
+    Object.entries(record).filter(([_key, value]) => value != null)
+  );
+}
+
+// src/post-to-api.ts
+var getOriginalFetch = () => globalThis.fetch;
+var postJsonToApi = async ({
+  url,
+  headers,
+  body,
+  failedResponseHandler,
+  successfulResponseHandler,
+  abortSignal,
+  fetch
+}) => postToApi({
+  url,
+  headers: {
+    "Content-Type": "application/json",
+    ...headers
+  },
+  body: {
+    content: JSON.stringify(body),
+    values: body
+  },
+  failedResponseHandler,
+  successfulResponseHandler,
+  abortSignal,
+  fetch
+});
+var postToApi = async ({
+  url,
+  headers = {},
+  body,
+  successfulResponseHandler,
+  failedResponseHandler,
+  abortSignal,
+  fetch = getOriginalFetch()
+}) => {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: removeUndefinedEntries(headers),
+      body: body.content,
+      signal: abortSignal
+    });
+    const responseHeaders = extractResponseHeaders(response);
+    if (!response.ok) {
+      let errorInformation;
+      try {
+        errorInformation = await failedResponseHandler({
+          response,
+          url,
+          requestBodyValues: body.values
+        });
+      } catch (error) {
+        if (isAbortError(error) || import_provider6.APICallError.isAPICallError(error)) {
+          throw error;
+        }
+        throw new import_provider6.APICallError({
+          message: "Failed to process error response",
+          cause: error,
+          statusCode: response.status,
+          url,
+          responseHeaders,
+          requestBodyValues: body.values
+        });
+      }
+      throw errorInformation.value;
+    }
+    try {
+      return await successfulResponseHandler({
+        response,
+        url,
+        requestBodyValues: body.values
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        if (isAbortError(error) || import_provider6.APICallError.isAPICallError(error)) {
+          throw error;
+        }
+      }
+      throw new import_provider6.APICallError({
+        message: "Failed to process successful response",
+        cause: error,
+        statusCode: response.status,
+        url,
+        responseHeaders,
+        requestBodyValues: body.values
+      });
+    }
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    if (error instanceof TypeError && error.message === "fetch failed") {
+      const cause = error.cause;
+      if (cause != null) {
+        throw new import_provider6.APICallError({
+          message: `Cannot connect to API: ${cause.message}`,
+          cause,
+          url,
+          requestBodyValues: body.values,
+          isRetryable: true
+          // retry when network error
+        });
+      }
+    }
+    throw error;
+  }
+};
+
+// src/response-handler.ts
+var import_provider7 = __nccwpck_require__(4460);
+var import_stream = __nccwpck_require__(4615);
+var createJsonErrorResponseHandler = ({
+  errorSchema,
+  errorToMessage,
+  isRetryable
+}) => async ({ response, url, requestBodyValues }) => {
+  const responseBody = await response.text();
+  const responseHeaders = extractResponseHeaders(response);
+  if (responseBody.trim() === "") {
+    return {
+      responseHeaders,
+      value: new import_provider7.APICallError({
+        message: response.statusText,
+        url,
+        requestBodyValues,
+        statusCode: response.status,
+        responseHeaders,
+        responseBody,
+        isRetryable: isRetryable == null ? void 0 : isRetryable(response)
+      })
+    };
+  }
+  try {
+    const parsedError = parseJSON({
+      text: responseBody,
+      schema: errorSchema
+    });
+    return {
+      responseHeaders,
+      value: new import_provider7.APICallError({
+        message: errorToMessage(parsedError),
+        url,
+        requestBodyValues,
+        statusCode: response.status,
+        responseHeaders,
+        responseBody,
+        data: parsedError,
+        isRetryable: isRetryable == null ? void 0 : isRetryable(response, parsedError)
+      })
+    };
+  } catch (parseError) {
+    return {
+      responseHeaders,
+      value: new import_provider7.APICallError({
+        message: response.statusText,
+        url,
+        requestBodyValues,
+        statusCode: response.status,
+        responseHeaders,
+        responseBody,
+        isRetryable: isRetryable == null ? void 0 : isRetryable(response)
+      })
+    };
+  }
+};
+var createEventSourceResponseHandler = (chunkSchema) => async ({ response }) => {
+  const responseHeaders = extractResponseHeaders(response);
+  if (response.body == null) {
+    throw new import_provider7.EmptyResponseBodyError({});
+  }
+  return {
+    responseHeaders,
+    value: response.body.pipeThrough(new TextDecoderStream()).pipeThrough(new import_stream.EventSourceParserStream()).pipeThrough(
+      new TransformStream({
+        transform({ data }, controller) {
+          if (data === "[DONE]") {
+            return;
+          }
+          controller.enqueue(
+            safeParseJSON({
+              text: data,
+              schema: chunkSchema
+            })
+          );
+        }
+      })
+    )
+  };
+};
+var createJsonStreamResponseHandler = (chunkSchema) => async ({ response }) => {
+  const responseHeaders = extractResponseHeaders(response);
+  if (response.body == null) {
+    throw new import_provider7.EmptyResponseBodyError({});
+  }
+  let buffer = "";
+  return {
+    responseHeaders,
+    value: response.body.pipeThrough(new TextDecoderStream()).pipeThrough(
+      new TransformStream({
+        transform(chunkText, controller) {
+          if (chunkText.endsWith("\n")) {
+            controller.enqueue(
+              safeParseJSON({
+                text: buffer + chunkText,
+                schema: chunkSchema
+              })
+            );
+            buffer = "";
+          } else {
+            buffer += chunkText;
+          }
+        }
+      })
+    )
+  };
+};
+var createJsonResponseHandler = (responseSchema) => async ({ response, url, requestBodyValues }) => {
+  const responseBody = await response.text();
+  const parsedResult = safeParseJSON({
+    text: responseBody,
+    schema: responseSchema
+  });
+  const responseHeaders = extractResponseHeaders(response);
+  if (!parsedResult.success) {
+    throw new import_provider7.APICallError({
+      message: "Invalid JSON response",
+      cause: parsedResult.error,
+      statusCode: response.status,
+      responseHeaders,
+      responseBody,
+      url,
+      requestBodyValues
+    });
+  }
+  return {
+    responseHeaders,
+    value: parsedResult.value
+  };
+};
+
+// src/uint8-utils.ts
+var { btoa, atob } = globalThis;
+function convertBase64ToUint8Array(base64String) {
+  const base64Url = base64String.replace(/-/g, "+").replace(/_/g, "/");
+  const latin1string = atob(base64Url);
+  return Uint8Array.from(latin1string, (byte) => byte.codePointAt(0));
+}
+function convertUint8ArrayToBase64(array) {
+  let latin1string = "";
+  for (let i = 0; i < array.length; i++) {
+    latin1string += String.fromCodePoint(array[i]);
+  }
+  return btoa(latin1string);
+}
+
+// src/without-trailing-slash.ts
+function withoutTrailingSlash(url) {
+  return url == null ? void 0 : url.replace(/\/$/, "");
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (0);
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 4460:
+/***/ ((module) => {
+
+"use strict";
+
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name14 in all)
+    __defProp(target, name14, { get: all[name14], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/index.ts
+var src_exports = {};
+__export(src_exports, {
+  AISDKError: () => AISDKError,
+  APICallError: () => APICallError,
+  EmptyResponseBodyError: () => EmptyResponseBodyError,
+  InvalidArgumentError: () => InvalidArgumentError,
+  InvalidPromptError: () => InvalidPromptError,
+  InvalidResponseDataError: () => InvalidResponseDataError,
+  JSONParseError: () => JSONParseError,
+  LoadAPIKeyError: () => LoadAPIKeyError,
+  LoadSettingError: () => LoadSettingError,
+  NoContentGeneratedError: () => NoContentGeneratedError,
+  NoSuchModelError: () => NoSuchModelError,
+  TooManyEmbeddingValuesForCallError: () => TooManyEmbeddingValuesForCallError,
+  TypeValidationError: () => TypeValidationError,
+  UnsupportedFunctionalityError: () => UnsupportedFunctionalityError,
+  getErrorMessage: () => getErrorMessage,
+  isJSONArray: () => isJSONArray,
+  isJSONObject: () => isJSONObject,
+  isJSONValue: () => isJSONValue
+});
+module.exports = __toCommonJS(src_exports);
+
+// src/errors/ai-sdk-error.ts
+var marker = "vercel.ai.error";
+var symbol = Symbol.for(marker);
+var _a;
+var _AISDKError = class _AISDKError extends Error {
+  /**
+   * Creates an AI SDK Error.
+   *
+   * @param {Object} params - The parameters for creating the error.
+   * @param {string} params.name - The name of the error.
+   * @param {string} params.message - The error message.
+   * @param {unknown} [params.cause] - The underlying cause of the error.
+   */
+  constructor({
+    name: name14,
+    message,
+    cause
+  }) {
+    super(message);
+    this[_a] = true;
+    this.name = name14;
+    this.cause = cause;
+  }
+  /**
+   * Checks if the given error is an AI SDK Error.
+   * @param {unknown} error - The error to check.
+   * @returns {boolean} True if the error is an AI SDK Error, false otherwise.
+   */
+  static isInstance(error) {
+    return _AISDKError.hasMarker(error, marker);
+  }
+  static hasMarker(error, marker15) {
+    const markerSymbol = Symbol.for(marker15);
+    return error != null && typeof error === "object" && markerSymbol in error && typeof error[markerSymbol] === "boolean" && error[markerSymbol] === true;
+  }
+  /**
+   * Returns a JSON representation of the error.
+   * @returns {Object} An object containing the error's name, message, and cause.
+   *
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message
+    };
+  }
+};
+_a = symbol;
+var AISDKError = _AISDKError;
+
+// src/errors/api-call-error.ts
+var name = "AI_APICallError";
+var marker2 = `vercel.ai.error.${name}`;
+var symbol2 = Symbol.for(marker2);
+var _a2;
+var APICallError = class extends AISDKError {
+  constructor({
+    message,
+    url,
+    requestBodyValues,
+    statusCode,
+    responseHeaders,
+    responseBody,
+    cause,
+    isRetryable = statusCode != null && (statusCode === 408 || // request timeout
+    statusCode === 409 || // conflict
+    statusCode === 429 || // too many requests
+    statusCode >= 500),
+    // server error
+    data
+  }) {
+    super({ name, message, cause });
+    this[_a2] = true;
+    this.url = url;
+    this.requestBodyValues = requestBodyValues;
+    this.statusCode = statusCode;
+    this.responseHeaders = responseHeaders;
+    this.responseBody = responseBody;
+    this.isRetryable = isRetryable;
+    this.data = data;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker2);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isAPICallError(error) {
+    return error instanceof Error && error.name === name && typeof error.url === "string" && typeof error.requestBodyValues === "object" && (error.statusCode == null || typeof error.statusCode === "number") && (error.responseHeaders == null || typeof error.responseHeaders === "object") && (error.responseBody == null || typeof error.responseBody === "string") && (error.cause == null || typeof error.cause === "object") && typeof error.isRetryable === "boolean" && (error.data == null || typeof error.data === "object");
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      url: this.url,
+      requestBodyValues: this.requestBodyValues,
+      statusCode: this.statusCode,
+      responseHeaders: this.responseHeaders,
+      responseBody: this.responseBody,
+      cause: this.cause,
+      isRetryable: this.isRetryable,
+      data: this.data
+    };
+  }
+};
+_a2 = symbol2;
+
+// src/errors/empty-response-body-error.ts
+var name2 = "AI_EmptyResponseBodyError";
+var marker3 = `vercel.ai.error.${name2}`;
+var symbol3 = Symbol.for(marker3);
+var _a3;
+var EmptyResponseBodyError = class extends AISDKError {
+  // used in isInstance
+  constructor({ message = "Empty response body" } = {}) {
+    super({ name: name2, message });
+    this[_a3] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker3);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isEmptyResponseBodyError(error) {
+    return error instanceof Error && error.name === name2;
+  }
+};
+_a3 = symbol3;
+
+// src/errors/get-error-message.ts
+function getErrorMessage(error) {
+  if (error == null) {
+    return "unknown error";
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return JSON.stringify(error);
+}
+
+// src/errors/invalid-argument-error.ts
+var name3 = "AI_InvalidArgumentError";
+var marker4 = `vercel.ai.error.${name3}`;
+var symbol4 = Symbol.for(marker4);
+var _a4;
+var InvalidArgumentError = class extends AISDKError {
+  constructor({
+    message,
+    cause,
+    argument
+  }) {
+    super({ name: name3, message, cause });
+    this[_a4] = true;
+    this.argument = argument;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker4);
+  }
+};
+_a4 = symbol4;
+
+// src/errors/invalid-prompt-error.ts
+var name4 = "AI_InvalidPromptError";
+var marker5 = `vercel.ai.error.${name4}`;
+var symbol5 = Symbol.for(marker5);
+var _a5;
+var InvalidPromptError = class extends AISDKError {
+  constructor({
+    prompt: prompt2,
+    message,
+    cause
+  }) {
+    super({ name: name4, message: `Invalid prompt: ${message}`, cause });
+    this[_a5] = true;
+    this.prompt = prompt2;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker5);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isInvalidPromptError(error) {
+    return error instanceof Error && error.name === name4 && prompt != null;
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      prompt: this.prompt
+    };
+  }
+};
+_a5 = symbol5;
+
+// src/errors/invalid-response-data-error.ts
+var name5 = "AI_InvalidResponseDataError";
+var marker6 = `vercel.ai.error.${name5}`;
+var symbol6 = Symbol.for(marker6);
+var _a6;
+var InvalidResponseDataError = class extends AISDKError {
+  constructor({
+    data,
+    message = `Invalid response data: ${JSON.stringify(data)}.`
+  }) {
+    super({ name: name5, message });
+    this[_a6] = true;
+    this.data = data;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker6);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isInvalidResponseDataError(error) {
+    return error instanceof Error && error.name === name5 && error.data != null;
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      data: this.data
+    };
+  }
+};
+_a6 = symbol6;
+
+// src/errors/json-parse-error.ts
+var name6 = "AI_JSONParseError";
+var marker7 = `vercel.ai.error.${name6}`;
+var symbol7 = Symbol.for(marker7);
+var _a7;
+var JSONParseError = class extends AISDKError {
+  constructor({ text, cause }) {
+    super({
+      name: name6,
+      message: `JSON parsing failed: Text: ${text}.
+Error message: ${getErrorMessage(cause)}`,
+      cause
+    });
+    this[_a7] = true;
+    this.text = text;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker7);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isJSONParseError(error) {
+    return error instanceof Error && error.name === name6 && "text" in error && typeof error.text === "string";
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      cause: this.cause,
+      stack: this.stack,
+      valueText: this.text
+    };
+  }
+};
+_a7 = symbol7;
+
+// src/errors/load-api-key-error.ts
+var name7 = "AI_LoadAPIKeyError";
+var marker8 = `vercel.ai.error.${name7}`;
+var symbol8 = Symbol.for(marker8);
+var _a8;
+var LoadAPIKeyError = class extends AISDKError {
+  // used in isInstance
+  constructor({ message }) {
+    super({ name: name7, message });
+    this[_a8] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker8);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isLoadAPIKeyError(error) {
+    return error instanceof Error && error.name === name7;
+  }
+};
+_a8 = symbol8;
+
+// src/errors/load-setting-error.ts
+var name8 = "AI_LoadSettingError";
+var marker9 = `vercel.ai.error.${name8}`;
+var symbol9 = Symbol.for(marker9);
+var _a9;
+var LoadSettingError = class extends AISDKError {
+  // used in isInstance
+  constructor({ message }) {
+    super({ name: name8, message });
+    this[_a9] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker9);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isLoadSettingError(error) {
+    return error instanceof Error && error.name === name8;
+  }
+};
+_a9 = symbol9;
+
+// src/errors/no-content-generated-error.ts
+var name9 = "AI_NoContentGeneratedError";
+var marker10 = `vercel.ai.error.${name9}`;
+var symbol10 = Symbol.for(marker10);
+var _a10;
+var NoContentGeneratedError = class extends AISDKError {
+  // used in isInstance
+  constructor({
+    message = "No content generated."
+  } = {}) {
+    super({ name: name9, message });
+    this[_a10] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker10);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isNoContentGeneratedError(error) {
+    return error instanceof Error && error.name === name9;
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      cause: this.cause,
+      message: this.message,
+      stack: this.stack
+    };
+  }
+};
+_a10 = symbol10;
+
+// src/errors/no-such-model-error.ts
+var name10 = "AI_NoSuchModelError";
+var marker11 = `vercel.ai.error.${name10}`;
+var symbol11 = Symbol.for(marker11);
+var _a11;
+var NoSuchModelError = class extends AISDKError {
+  constructor({
+    errorName = name10,
+    modelId,
+    modelType,
+    message = `No such ${modelType}: ${modelId}`
+  }) {
+    super({ name: errorName, message });
+    this[_a11] = true;
+    this.modelId = modelId;
+    this.modelType = modelType;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker11);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isNoSuchModelError(error) {
+    return error instanceof Error && error.name === name10 && typeof error.modelId === "string" && typeof error.modelType === "string";
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      modelId: this.modelId,
+      modelType: this.modelType
+    };
+  }
+};
+_a11 = symbol11;
+
+// src/errors/too-many-embedding-values-for-call-error.ts
+var name11 = "AI_TooManyEmbeddingValuesForCallError";
+var marker12 = `vercel.ai.error.${name11}`;
+var symbol12 = Symbol.for(marker12);
+var _a12;
+var TooManyEmbeddingValuesForCallError = class extends AISDKError {
+  constructor(options) {
+    super({
+      name: name11,
+      message: `Too many values for a single embedding call. The ${options.provider} model "${options.modelId}" can only embed up to ${options.maxEmbeddingsPerCall} values per call, but ${options.values.length} values were provided.`
+    });
+    this[_a12] = true;
+    this.provider = options.provider;
+    this.modelId = options.modelId;
+    this.maxEmbeddingsPerCall = options.maxEmbeddingsPerCall;
+    this.values = options.values;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker12);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isTooManyEmbeddingValuesForCallError(error) {
+    return error instanceof Error && error.name === name11 && "provider" in error && typeof error.provider === "string" && "modelId" in error && typeof error.modelId === "string" && "maxEmbeddingsPerCall" in error && typeof error.maxEmbeddingsPerCall === "number" && "values" in error && Array.isArray(error.values);
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      provider: this.provider,
+      modelId: this.modelId,
+      maxEmbeddingsPerCall: this.maxEmbeddingsPerCall,
+      values: this.values
+    };
+  }
+};
+_a12 = symbol12;
+
+// src/errors/type-validation-error.ts
+var name12 = "AI_TypeValidationError";
+var marker13 = `vercel.ai.error.${name12}`;
+var symbol13 = Symbol.for(marker13);
+var _a13;
+var _TypeValidationError = class _TypeValidationError extends AISDKError {
+  constructor({ value, cause }) {
+    super({
+      name: name12,
+      message: `Type validation failed: Value: ${JSON.stringify(value)}.
+Error message: ${getErrorMessage(cause)}`,
+      cause
+    });
+    this[_a13] = true;
+    this.value = value;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker13);
+  }
+  /**
+   * Wraps an error into a TypeValidationError.
+   * If the cause is already a TypeValidationError with the same value, it returns the cause.
+   * Otherwise, it creates a new TypeValidationError.
+   *
+   * @param {Object} params - The parameters for wrapping the error.
+   * @param {unknown} params.value - The value that failed validation.
+   * @param {unknown} params.cause - The original error or cause of the validation failure.
+   * @returns {TypeValidationError} A TypeValidationError instance.
+   */
+  static wrap({
+    value,
+    cause
+  }) {
+    return _TypeValidationError.isInstance(cause) && cause.value === value ? cause : new _TypeValidationError({ value, cause });
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isTypeValidationError(error) {
+    return error instanceof Error && error.name === name12;
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      cause: this.cause,
+      stack: this.stack,
+      value: this.value
+    };
+  }
+};
+_a13 = symbol13;
+var TypeValidationError = _TypeValidationError;
+
+// src/errors/unsupported-functionality-error.ts
+var name13 = "AI_UnsupportedFunctionalityError";
+var marker14 = `vercel.ai.error.${name13}`;
+var symbol14 = Symbol.for(marker14);
+var _a14;
+var UnsupportedFunctionalityError = class extends AISDKError {
+  constructor({ functionality }) {
+    super({
+      name: name13,
+      message: `'${functionality}' functionality not supported.`
+    });
+    this[_a14] = true;
+    this.functionality = functionality;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker14);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isUnsupportedFunctionalityError(error) {
+    return error instanceof Error && error.name === name13 && typeof error.functionality === "string";
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      functionality: this.functionality
+    };
+  }
+};
+_a14 = symbol14;
+
+// src/json-value/is-json.ts
+function isJSONValue(value) {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJSONValue);
+  }
+  if (typeof value === "object") {
+    return Object.entries(value).every(
+      ([key, val]) => typeof key === "string" && isJSONValue(val)
+    );
+  }
+  return false;
+}
+function isJSONArray(value) {
+  return Array.isArray(value) && value.every(isJSONValue);
+}
+function isJSONObject(value) {
+  return value != null && typeof value === "object" && Object.entries(value).every(
+    ([key, val]) => typeof key === "string" && isJSONValue(val)
   );
 }
 // Annotate the CommonJS export names for ESM import in node:
@@ -14057,14 +15222,14 @@ __export(streams_exports, {
 });
 module.exports = __toCommonJS(streams_exports);
 var import_ui_utils10 = __nccwpck_require__(8099);
-var import_provider_utils11 = __nccwpck_require__(1746);
+var import_provider_utils10 = __nccwpck_require__(5168);
 
 // core/index.ts
 var import_ui_utils6 = __nccwpck_require__(8099);
 
 // util/retry-with-exponential-backoff.ts
-var import_provider2 = __nccwpck_require__(2466);
-var import_provider_utils = __nccwpck_require__(1746);
+var import_provider2 = __nccwpck_require__(6468);
+var import_provider_utils = __nccwpck_require__(5168);
 
 // util/delay.ts
 async function delay(delayInMs) {
@@ -14072,7 +15237,7 @@ async function delay(delayInMs) {
 }
 
 // util/retry-error.ts
-var import_provider = __nccwpck_require__(2466);
+var import_provider = __nccwpck_require__(6468);
 var name = "AI_RetryError";
 var marker = `vercel.ai.error.${name}`;
 var symbol = Symbol.for(marker);
@@ -14637,13 +15802,10 @@ var DefaultEmbedManyResult = class {
 };
 
 // core/generate-object/generate-object.ts
-var import_provider_utils6 = __nccwpck_require__(1746);
-
-// core/prompt/convert-to-language-model-prompt.ts
-var import_provider_utils3 = __nccwpck_require__(1746);
+var import_provider_utils5 = __nccwpck_require__(5168);
 
 // util/download-error.ts
-var import_provider3 = __nccwpck_require__(2466);
+var import_provider3 = __nccwpck_require__(6468);
 var name2 = "AI_DownloadError";
 var marker2 = `vercel.ai.error.${name2}`;
 var symbol2 = Symbol.for(marker2);
@@ -14732,10 +15894,10 @@ function detectImageMimeType(image) {
 }
 
 // core/prompt/data-content.ts
-var import_provider_utils2 = __nccwpck_require__(1746);
+var import_provider_utils2 = __nccwpck_require__(5168);
 
 // core/prompt/invalid-data-content-error.ts
-var import_provider4 = __nccwpck_require__(2466);
+var import_provider4 = __nccwpck_require__(6468);
 var name3 = "AI_InvalidDataContentError";
 var marker3 = `vercel.ai.error.${name3}`;
 var symbol3 = Symbol.for(marker3);
@@ -14827,7 +15989,7 @@ function convertUint8ArrayToText(uint8Array) {
 }
 
 // core/prompt/invalid-message-role-error.ts
-var import_provider5 = __nccwpck_require__(2466);
+var import_provider5 = __nccwpck_require__(6468);
 var name4 = "AI_InvalidMessageRoleError";
 var marker4 = `vercel.ai.error.${name4}`;
 var symbol4 = Symbol.for(marker4);
@@ -14884,19 +16046,21 @@ function splitDataUrl(dataUrl) {
 async function convertToLanguageModelPrompt({
   prompt,
   modelSupportsImageUrls = true,
+  modelSupportsUrl = () => false,
   downloadImplementation = download
 }) {
-  const downloadedAssets = modelSupportsImageUrls || prompt.messages == null ? null : await downloadAssets(prompt.messages, downloadImplementation);
-  const languageModelMessages = [];
-  if (prompt.system != null) {
-    languageModelMessages.push({ role: "system", content: prompt.system });
-  }
-  languageModelMessages.push(
+  const downloadedAssets = await downloadAssets(
+    prompt.messages,
+    downloadImplementation,
+    modelSupportsImageUrls,
+    modelSupportsUrl
+  );
+  return [
+    ...prompt.system != null ? [{ role: "system", content: prompt.system }] : [],
     ...prompt.messages.map(
       (message) => convertToLanguageModelMessage(message, downloadedAssets)
     )
-  );
-  return languageModelMessages;
+  ];
 }
 function convertToLanguageModelMessage(message, downloadedAssets) {
   const role = message.role;
@@ -14918,178 +16082,7 @@ function convertToLanguageModelMessage(message, downloadedAssets) {
       }
       return {
         role: "user",
-        content: message.content.map(
-          (part) => {
-            var _a11, _b, _c, _d, _e;
-            switch (part.type) {
-              case "text": {
-                return {
-                  type: "text",
-                  text: part.text,
-                  providerMetadata: part.experimental_providerMetadata
-                };
-              }
-              case "image": {
-                if (part.image instanceof URL) {
-                  if (downloadedAssets == null) {
-                    return {
-                      type: "image",
-                      image: part.image,
-                      mimeType: part.mimeType,
-                      providerMetadata: part.experimental_providerMetadata
-                    };
-                  } else {
-                    const downloadedImage = downloadedAssets[part.image.toString()];
-                    return {
-                      type: "image",
-                      image: downloadedImage.data,
-                      mimeType: (_a11 = part.mimeType) != null ? _a11 : downloadedImage.mimeType,
-                      providerMetadata: part.experimental_providerMetadata
-                    };
-                  }
-                }
-                if (typeof part.image === "string") {
-                  try {
-                    const url = new URL(part.image);
-                    switch (url.protocol) {
-                      case "http:":
-                      case "https:": {
-                        if (downloadedAssets == null) {
-                          return {
-                            type: "image",
-                            image: url,
-                            mimeType: part.mimeType,
-                            providerMetadata: part.experimental_providerMetadata
-                          };
-                        } else {
-                          const downloadedImage = downloadedAssets[url.toString()];
-                          return {
-                            type: "image",
-                            image: downloadedImage.data,
-                            mimeType: (_b = part.mimeType) != null ? _b : downloadedImage.mimeType,
-                            providerMetadata: part.experimental_providerMetadata
-                          };
-                        }
-                      }
-                      case "data:": {
-                        try {
-                          const { mimeType, base64Content } = splitDataUrl(
-                            part.image
-                          );
-                          if (mimeType == null || base64Content == null) {
-                            throw new Error("Invalid data URL format");
-                          }
-                          return {
-                            type: "image",
-                            image: convertDataContentToUint8Array(base64Content),
-                            mimeType,
-                            providerMetadata: part.experimental_providerMetadata
-                          };
-                        } catch (error) {
-                          throw new Error(
-                            `Error processing data URL: ${(0, import_provider_utils3.getErrorMessage)(
-                              message
-                            )}`
-                          );
-                        }
-                      }
-                    }
-                  } catch (_ignored) {
-                  }
-                }
-                const imageUint8 = convertDataContentToUint8Array(part.image);
-                return {
-                  type: "image",
-                  image: imageUint8,
-                  mimeType: (_c = part.mimeType) != null ? _c : detectImageMimeType(imageUint8),
-                  providerMetadata: part.experimental_providerMetadata
-                };
-              }
-              case "file": {
-                if (part.data instanceof URL) {
-                  if (downloadedAssets == null) {
-                    return {
-                      type: "file",
-                      data: part.data,
-                      mimeType: part.mimeType,
-                      providerMetadata: part.experimental_providerMetadata
-                    };
-                  } else {
-                    const downloadedImage = downloadedAssets[part.data.toString()];
-                    return {
-                      type: "file",
-                      data: (0, import_provider_utils3.convertUint8ArrayToBase64)(downloadedImage.data),
-                      mimeType: (_d = part.mimeType) != null ? _d : downloadedImage.mimeType,
-                      providerMetadata: part.experimental_providerMetadata
-                    };
-                  }
-                }
-                if (typeof part.data === "string") {
-                  try {
-                    const url = new URL(part.data);
-                    switch (url.protocol) {
-                      case "http:":
-                      case "https:": {
-                        if (downloadedAssets == null) {
-                          return {
-                            type: "file",
-                            data: url,
-                            mimeType: part.mimeType,
-                            providerMetadata: part.experimental_providerMetadata
-                          };
-                        } else {
-                          const downloadedImage = downloadedAssets[url.toString()];
-                          return {
-                            type: "file",
-                            data: (0, import_provider_utils3.convertUint8ArrayToBase64)(
-                              downloadedImage.data
-                            ),
-                            mimeType: (_e = part.mimeType) != null ? _e : downloadedImage.mimeType,
-                            providerMetadata: part.experimental_providerMetadata
-                          };
-                        }
-                      }
-                      case "data:": {
-                        try {
-                          const { mimeType, base64Content } = splitDataUrl(
-                            part.data
-                          );
-                          if (mimeType == null || base64Content == null) {
-                            throw new Error("Invalid data URL format");
-                          }
-                          return {
-                            type: "file",
-                            data: convertDataContentToBase64String(
-                              base64Content
-                            ),
-                            mimeType,
-                            providerMetadata: part.experimental_providerMetadata
-                          };
-                        } catch (error) {
-                          throw new Error(
-                            `Error processing data URL: ${(0, import_provider_utils3.getErrorMessage)(
-                              message
-                            )}`
-                          );
-                        }
-                      }
-                    }
-                  } catch (_ignored) {
-                  }
-                }
-                const imageBase64 = convertDataContentToBase64String(
-                  part.data
-                );
-                return {
-                  type: "file",
-                  data: imageBase64,
-                  mimeType: part.mimeType,
-                  providerMetadata: part.experimental_providerMetadata
-                };
-              }
-            }
-          }
-        ).filter((part) => part.type !== "text" || part.text !== ""),
+        content: message.content.map((part) => convertPartToLanguageModelPart(part, downloadedAssets)).filter((part) => part.type !== "text" || part.text !== ""),
         providerMetadata: message.experimental_providerMetadata
       };
     }
@@ -15124,6 +16117,8 @@ function convertToLanguageModelMessage(message, downloadedAssets) {
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           result: part.result,
+          content: part.experimental_content,
+          isError: part.isError,
           providerMetadata: part.experimental_providerMetadata
         })),
         providerMetadata: message.experimental_providerMetadata
@@ -15135,17 +16130,19 @@ function convertToLanguageModelMessage(message, downloadedAssets) {
     }
   }
 }
-async function downloadAssets(messages, downloadImplementation) {
+async function downloadAssets(messages, downloadImplementation, modelSupportsImageUrls, modelSupportsUrl) {
   const urls = messages.filter((message) => message.role === "user").map((message) => message.content).filter(
     (content) => Array.isArray(content)
   ).flat().filter(
     (part) => part.type === "image" || part.type === "file"
+  ).filter(
+    (part) => !(part.type === "image" && modelSupportsImageUrls === true)
   ).map((part) => part.type === "image" ? part.image : part.data).map(
     (part) => (
       // support string urls:
       typeof part === "string" && (part.startsWith("http:") || part.startsWith("https:")) ? new URL(part) : part
     )
-  ).filter((image) => image instanceof URL);
+  ).filter((image) => image instanceof URL).filter((url) => !modelSupportsUrl(url));
   const downloadedImages = await Promise.all(
     urls.map(async (url) => ({
       url,
@@ -15156,9 +16153,82 @@ async function downloadAssets(messages, downloadImplementation) {
     downloadedImages.map(({ url, data }) => [url.toString(), data])
   );
 }
+function convertPartToLanguageModelPart(part, downloadedAssets) {
+  if (part.type === "text") {
+    return {
+      type: "text",
+      text: part.text,
+      providerMetadata: part.experimental_providerMetadata
+    };
+  }
+  let mimeType = part.mimeType;
+  let data;
+  let content;
+  let normalizedData;
+  const type = part.type;
+  switch (type) {
+    case "image":
+      data = part.image;
+      break;
+    case "file":
+      data = part.data;
+      break;
+    default:
+      throw new Error(`Unsupported part type: ${type}`);
+  }
+  try {
+    content = typeof data === "string" ? new URL(data) : data;
+  } catch (error) {
+    content = data;
+  }
+  if (content instanceof URL) {
+    if (content.protocol === "data:") {
+      const { mimeType: dataUrlMimeType, base64Content } = splitDataUrl(
+        content.toString()
+      );
+      if (dataUrlMimeType == null || base64Content == null) {
+        throw new Error(`Invalid data URL format in part ${type}`);
+      }
+      mimeType = dataUrlMimeType;
+      normalizedData = convertDataContentToUint8Array(base64Content);
+    } else {
+      const downloadedFile = downloadedAssets[content.toString()];
+      if (downloadedFile) {
+        normalizedData = downloadedFile.data;
+        mimeType != null ? mimeType : mimeType = downloadedFile.mimeType;
+      } else {
+        normalizedData = content;
+      }
+    }
+  } else {
+    normalizedData = convertDataContentToUint8Array(content);
+  }
+  switch (type) {
+    case "image":
+      if (mimeType == null && normalizedData instanceof Uint8Array) {
+        mimeType = detectImageMimeType(normalizedData);
+      }
+      return {
+        type: "image",
+        image: normalizedData,
+        mimeType,
+        providerMetadata: part.experimental_providerMetadata
+      };
+    case "file":
+      if (mimeType == null) {
+        throw new Error(`Mime type is missing for file part`);
+      }
+      return {
+        type: "file",
+        data: normalizedData instanceof Uint8Array ? convertDataContentToBase64String(normalizedData) : normalizedData,
+        mimeType,
+        providerMetadata: part.experimental_providerMetadata
+      };
+  }
+}
 
 // errors/invalid-argument-error.ts
-var import_provider6 = __nccwpck_require__(2466);
+var import_provider6 = __nccwpck_require__(6468);
 var name5 = "AI_InvalidArgumentError";
 var marker5 = `vercel.ai.error.${name5}`;
 var symbol5 = Symbol.for(marker5);
@@ -15310,12 +16380,12 @@ function prepareCallSettings({
 }
 
 // core/prompt/standardize-prompt.ts
-var import_provider7 = __nccwpck_require__(2466);
-var import_provider_utils4 = __nccwpck_require__(1746);
-var import_zod6 = __nccwpck_require__(4809);
+var import_provider8 = __nccwpck_require__(6468);
+var import_provider_utils3 = __nccwpck_require__(5168);
+var import_zod7 = __nccwpck_require__(4809);
 
 // core/prompt/message.ts
-var import_zod5 = __nccwpck_require__(4809);
+var import_zod6 = __nccwpck_require__(4809);
 
 // core/types/provider-metadata.ts
 var import_zod3 = __nccwpck_require__(4809);
@@ -15340,96 +16410,336 @@ var providerMetadataSchema = import_zod3.z.record(
 );
 
 // core/prompt/content-part.ts
+var import_zod5 = __nccwpck_require__(4809);
+
+// core/prompt/tool-result-content.ts
 var import_zod4 = __nccwpck_require__(4809);
-var textPartSchema = import_zod4.z.object({
-  type: import_zod4.z.literal("text"),
-  text: import_zod4.z.string(),
+var toolResultContentSchema = import_zod4.z.array(
+  import_zod4.z.union([
+    import_zod4.z.object({ type: import_zod4.z.literal("text"), text: import_zod4.z.string() }),
+    import_zod4.z.object({
+      type: import_zod4.z.literal("image"),
+      data: import_zod4.z.string(),
+      mimeType: import_zod4.z.string().optional()
+    })
+  ])
+);
+
+// core/prompt/content-part.ts
+var textPartSchema = import_zod5.z.object({
+  type: import_zod5.z.literal("text"),
+  text: import_zod5.z.string(),
   experimental_providerMetadata: providerMetadataSchema.optional()
 });
-var imagePartSchema = import_zod4.z.object({
-  type: import_zod4.z.literal("image"),
-  image: import_zod4.z.union([dataContentSchema, import_zod4.z.instanceof(URL)]),
-  mimeType: import_zod4.z.string().optional(),
+var imagePartSchema = import_zod5.z.object({
+  type: import_zod5.z.literal("image"),
+  image: import_zod5.z.union([dataContentSchema, import_zod5.z.instanceof(URL)]),
+  mimeType: import_zod5.z.string().optional(),
   experimental_providerMetadata: providerMetadataSchema.optional()
 });
-var filePartSchema = import_zod4.z.object({
-  type: import_zod4.z.literal("file"),
-  data: import_zod4.z.union([dataContentSchema, import_zod4.z.instanceof(URL)]),
-  mimeType: import_zod4.z.string(),
+var filePartSchema = import_zod5.z.object({
+  type: import_zod5.z.literal("file"),
+  data: import_zod5.z.union([dataContentSchema, import_zod5.z.instanceof(URL)]),
+  mimeType: import_zod5.z.string(),
   experimental_providerMetadata: providerMetadataSchema.optional()
 });
-var toolCallPartSchema = import_zod4.z.object({
-  type: import_zod4.z.literal("tool-call"),
-  toolCallId: import_zod4.z.string(),
-  toolName: import_zod4.z.string(),
-  args: import_zod4.z.unknown()
+var toolCallPartSchema = import_zod5.z.object({
+  type: import_zod5.z.literal("tool-call"),
+  toolCallId: import_zod5.z.string(),
+  toolName: import_zod5.z.string(),
+  args: import_zod5.z.unknown()
 });
-var toolResultPartSchema = import_zod4.z.object({
-  type: import_zod4.z.literal("tool-result"),
-  toolCallId: import_zod4.z.string(),
-  toolName: import_zod4.z.string(),
-  result: import_zod4.z.unknown(),
-  isError: import_zod4.z.boolean().optional(),
+var toolResultPartSchema = import_zod5.z.object({
+  type: import_zod5.z.literal("tool-result"),
+  toolCallId: import_zod5.z.string(),
+  toolName: import_zod5.z.string(),
+  result: import_zod5.z.unknown(),
+  content: toolResultContentSchema.optional(),
+  isError: import_zod5.z.boolean().optional(),
   experimental_providerMetadata: providerMetadataSchema.optional()
 });
 
 // core/prompt/message.ts
-var coreSystemMessageSchema = import_zod5.z.object({
-  role: import_zod5.z.literal("system"),
-  content: import_zod5.z.string(),
+var coreSystemMessageSchema = import_zod6.z.object({
+  role: import_zod6.z.literal("system"),
+  content: import_zod6.z.string(),
   experimental_providerMetadata: providerMetadataSchema.optional()
 });
-var coreUserMessageSchema = import_zod5.z.object({
-  role: import_zod5.z.literal("user"),
-  content: import_zod5.z.union([
-    import_zod5.z.string(),
-    import_zod5.z.array(import_zod5.z.union([textPartSchema, imagePartSchema, filePartSchema]))
+var coreUserMessageSchema = import_zod6.z.object({
+  role: import_zod6.z.literal("user"),
+  content: import_zod6.z.union([
+    import_zod6.z.string(),
+    import_zod6.z.array(import_zod6.z.union([textPartSchema, imagePartSchema, filePartSchema]))
   ]),
   experimental_providerMetadata: providerMetadataSchema.optional()
 });
-var coreAssistantMessageSchema = import_zod5.z.object({
-  role: import_zod5.z.literal("assistant"),
-  content: import_zod5.z.union([
-    import_zod5.z.string(),
-    import_zod5.z.array(import_zod5.z.union([textPartSchema, toolCallPartSchema]))
+var coreAssistantMessageSchema = import_zod6.z.object({
+  role: import_zod6.z.literal("assistant"),
+  content: import_zod6.z.union([
+    import_zod6.z.string(),
+    import_zod6.z.array(import_zod6.z.union([textPartSchema, toolCallPartSchema]))
   ]),
   experimental_providerMetadata: providerMetadataSchema.optional()
 });
-var coreToolMessageSchema = import_zod5.z.object({
-  role: import_zod5.z.literal("tool"),
-  content: import_zod5.z.array(toolResultPartSchema),
+var coreToolMessageSchema = import_zod6.z.object({
+  role: import_zod6.z.literal("tool"),
+  content: import_zod6.z.array(toolResultPartSchema),
   experimental_providerMetadata: providerMetadataSchema.optional()
 });
-var coreMessageSchema = import_zod5.z.union([
+var coreMessageSchema = import_zod6.z.union([
   coreSystemMessageSchema,
   coreUserMessageSchema,
   coreAssistantMessageSchema,
   coreToolMessageSchema
 ]);
 
+// core/prompt/detect-prompt-type.ts
+function detectPromptType(prompt) {
+  if (!Array.isArray(prompt)) {
+    return "other";
+  }
+  if (prompt.length === 0) {
+    return "messages";
+  }
+  const characteristics = prompt.map(detectSingleMessageCharacteristics);
+  if (characteristics.some((c) => c === "has-ui-specific-parts")) {
+    return "ui-messages";
+  } else if (characteristics.every(
+    (c) => c === "has-core-specific-parts" || c === "message"
+  )) {
+    return "messages";
+  } else {
+    return "other";
+  }
+}
+function detectSingleMessageCharacteristics(message) {
+  if (typeof message === "object" && message !== null && (message.role === "function" || // UI-only role
+  message.role === "data" || // UI-only role
+  "toolInvocations" in message || // UI-specific field
+  "experimental_attachments" in message)) {
+    return "has-ui-specific-parts";
+  } else if (typeof message === "object" && message !== null && "content" in message && (Array.isArray(message.content) || // Core messages can have array content
+  "experimental_providerMetadata" in message)) {
+    return "has-core-specific-parts";
+  } else if (typeof message === "object" && message !== null && "role" in message && "content" in message && typeof message.content === "string" && ["system", "user", "assistant", "tool"].includes(message.role)) {
+    return "message";
+  } else {
+    return "other";
+  }
+}
+
+// core/prompt/attachments-to-parts.ts
+function attachmentsToParts(attachments) {
+  var _a11, _b, _c;
+  const parts = [];
+  for (const attachment of attachments) {
+    let url;
+    try {
+      url = new URL(attachment.url);
+    } catch (error) {
+      throw new Error(`Invalid URL: ${attachment.url}`);
+    }
+    switch (url.protocol) {
+      case "http:":
+      case "https:": {
+        if ((_a11 = attachment.contentType) == null ? void 0 : _a11.startsWith("image/")) {
+          parts.push({ type: "image", image: url });
+        } else {
+          if (!attachment.contentType) {
+            throw new Error(
+              "If the attachment is not an image, it must specify a content type"
+            );
+          }
+          parts.push({
+            type: "file",
+            data: url,
+            mimeType: attachment.contentType
+          });
+        }
+        break;
+      }
+      case "data:": {
+        let header;
+        let base64Content;
+        let mimeType;
+        try {
+          [header, base64Content] = attachment.url.split(",");
+          mimeType = header.split(";")[0].split(":")[1];
+        } catch (error) {
+          throw new Error(`Error processing data URL: ${attachment.url}`);
+        }
+        if (mimeType == null || base64Content == null) {
+          throw new Error(`Invalid data URL format: ${attachment.url}`);
+        }
+        if ((_b = attachment.contentType) == null ? void 0 : _b.startsWith("image/")) {
+          parts.push({
+            type: "image",
+            image: convertDataContentToUint8Array(base64Content)
+          });
+        } else if ((_c = attachment.contentType) == null ? void 0 : _c.startsWith("text/")) {
+          parts.push({
+            type: "text",
+            text: convertUint8ArrayToText(
+              convertDataContentToUint8Array(base64Content)
+            )
+          });
+        } else {
+          if (!attachment.contentType) {
+            throw new Error(
+              "If the attachment is not an image or text, it must specify a content type"
+            );
+          }
+          parts.push({
+            type: "file",
+            data: base64Content,
+            mimeType: attachment.contentType
+          });
+        }
+        break;
+      }
+      default: {
+        throw new Error(`Unsupported URL protocol: ${url.protocol}`);
+      }
+    }
+  }
+  return parts;
+}
+
+// core/prompt/message-conversion-error.ts
+var import_provider7 = __nccwpck_require__(6468);
+var name6 = "AI_MessageConversionError";
+var marker6 = `vercel.ai.error.${name6}`;
+var symbol6 = Symbol.for(marker6);
+var _a6;
+var MessageConversionError = class extends import_provider7.AISDKError {
+  constructor({
+    originalMessage,
+    message
+  }) {
+    super({ name: name6, message });
+    this[_a6] = true;
+    this.originalMessage = originalMessage;
+  }
+  static isInstance(error) {
+    return import_provider7.AISDKError.hasMarker(error, marker6);
+  }
+};
+_a6 = symbol6;
+
+// core/prompt/convert-to-core-messages.ts
+function convertToCoreMessages(messages, options) {
+  var _a11;
+  const tools = (_a11 = options == null ? void 0 : options.tools) != null ? _a11 : {};
+  const coreMessages = [];
+  for (const message of messages) {
+    const { role, content, toolInvocations, experimental_attachments } = message;
+    switch (role) {
+      case "system": {
+        coreMessages.push({
+          role: "system",
+          content
+        });
+        break;
+      }
+      case "user": {
+        coreMessages.push({
+          role: "user",
+          content: experimental_attachments ? [
+            { type: "text", text: content },
+            ...attachmentsToParts(experimental_attachments)
+          ] : content
+        });
+        break;
+      }
+      case "assistant": {
+        if (toolInvocations == null) {
+          coreMessages.push({ role: "assistant", content });
+          break;
+        }
+        coreMessages.push({
+          role: "assistant",
+          content: [
+            { type: "text", text: content },
+            ...toolInvocations.map(
+              ({ toolCallId, toolName, args }) => ({
+                type: "tool-call",
+                toolCallId,
+                toolName,
+                args
+              })
+            )
+          ]
+        });
+        coreMessages.push({
+          role: "tool",
+          content: toolInvocations.map((toolInvocation) => {
+            if (!("result" in toolInvocation)) {
+              throw new MessageConversionError({
+                originalMessage: message,
+                message: "ToolInvocation must have a result: " + JSON.stringify(toolInvocation)
+              });
+            }
+            const { toolCallId, toolName, result } = toolInvocation;
+            const tool2 = tools[toolName];
+            return (tool2 == null ? void 0 : tool2.experimental_toToolResultContent) != null ? {
+              type: "tool-result",
+              toolCallId,
+              toolName,
+              result: tool2.experimental_toToolResultContent(result),
+              experimental_content: tool2.experimental_toToolResultContent(result)
+            } : {
+              type: "tool-result",
+              toolCallId,
+              toolName,
+              result
+            };
+          })
+        });
+        break;
+      }
+      case "function":
+      case "data":
+      case "tool": {
+        break;
+      }
+      default: {
+        const _exhaustiveCheck = role;
+        throw new MessageConversionError({
+          originalMessage: message,
+          message: `Unsupported role: ${_exhaustiveCheck}`
+        });
+      }
+    }
+  }
+  return coreMessages;
+}
+
 // core/prompt/standardize-prompt.ts
-function standardizePrompt(prompt) {
+function standardizePrompt({
+  prompt,
+  tools
+}) {
   if (prompt.prompt == null && prompt.messages == null) {
-    throw new import_provider7.InvalidPromptError({
+    throw new import_provider8.InvalidPromptError({
       prompt,
       message: "prompt or messages must be defined"
     });
   }
   if (prompt.prompt != null && prompt.messages != null) {
-    throw new import_provider7.InvalidPromptError({
+    throw new import_provider8.InvalidPromptError({
       prompt,
       message: "prompt and messages cannot be defined at the same time"
     });
   }
   if (prompt.system != null && typeof prompt.system !== "string") {
-    throw new import_provider7.InvalidPromptError({
+    throw new import_provider8.InvalidPromptError({
       prompt,
       message: "system must be a string"
     });
   }
   if (prompt.prompt != null) {
     if (typeof prompt.prompt !== "string") {
-      throw new import_provider7.InvalidPromptError({
+      throw new import_provider8.InvalidPromptError({
         prompt,
         message: "prompt must be a string"
       });
@@ -15446,21 +16756,30 @@ function standardizePrompt(prompt) {
     };
   }
   if (prompt.messages != null) {
-    const validationResult = (0, import_provider_utils4.safeValidateTypes)({
-      value: prompt.messages,
-      schema: import_zod6.z.array(coreMessageSchema)
+    const promptType = detectPromptType(prompt.messages);
+    if (promptType === "other") {
+      throw new import_provider8.InvalidPromptError({
+        prompt,
+        message: "messages must be an array of CoreMessage or UIMessage"
+      });
+    }
+    const messages = promptType === "ui-messages" ? convertToCoreMessages(prompt.messages, {
+      tools
+    }) : prompt.messages;
+    const validationResult = (0, import_provider_utils3.safeValidateTypes)({
+      value: messages,
+      schema: import_zod7.z.array(coreMessageSchema)
     });
     if (!validationResult.success) {
-      throw new import_provider7.InvalidPromptError({
+      throw new import_provider8.InvalidPromptError({
         prompt,
-        message: "messages must be an array of CoreMessage",
+        message: "messages must be an array of CoreMessage or UIMessage",
         cause: validationResult.error
       });
     }
     return {
       type: "messages",
-      messages: prompt.messages,
-      // only possible case bc of checks above
+      messages,
       system: prompt.system
     };
   }
@@ -15513,25 +16832,25 @@ function injectJsonInstruction({
 }
 
 // core/generate-object/no-object-generated-error.ts
-var import_provider8 = __nccwpck_require__(2466);
-var name6 = "AI_NoObjectGeneratedError";
-var marker6 = `vercel.ai.error.${name6}`;
-var symbol6 = Symbol.for(marker6);
-var _a6;
-var NoObjectGeneratedError = class extends import_provider8.AISDKError {
+var import_provider9 = __nccwpck_require__(6468);
+var name7 = "AI_NoObjectGeneratedError";
+var marker7 = `vercel.ai.error.${name7}`;
+var symbol7 = Symbol.for(marker7);
+var _a7;
+var NoObjectGeneratedError = class extends import_provider9.AISDKError {
   // used in isInstance
   constructor({ message = "No object generated." } = {}) {
-    super({ name: name6, message });
-    this[_a6] = true;
+    super({ name: name7, message });
+    this[_a7] = true;
   }
   static isInstance(error) {
-    return import_provider8.AISDKError.hasMarker(error, marker6);
+    return import_provider9.AISDKError.hasMarker(error, marker7);
   }
   /**
    * @deprecated Use isInstance instead.
    */
   static isNoObjectGeneratedError(error) {
-    return error instanceof Error && error.name === name6;
+    return error instanceof Error && error.name === name7;
   }
   /**
    * @deprecated Do not use this method. It will be removed in the next major version.
@@ -15545,11 +16864,11 @@ var NoObjectGeneratedError = class extends import_provider8.AISDKError {
     };
   }
 };
-_a6 = symbol6;
+_a7 = symbol7;
 
 // core/generate-object/output-strategy.ts
-var import_provider9 = __nccwpck_require__(2466);
-var import_provider_utils5 = __nccwpck_require__(1746);
+var import_provider10 = __nccwpck_require__(6468);
+var import_provider_utils4 = __nccwpck_require__(5168);
 var import_ui_utils = __nccwpck_require__(8099);
 
 // core/util/async-iterable-stream.ts
@@ -15580,7 +16899,7 @@ var noSchemaOutputStrategy = {
     return value === void 0 ? { success: false, error: new NoObjectGeneratedError() } : { success: true, value };
   },
   createElementStream() {
-    throw new import_provider9.UnsupportedFunctionalityError({
+    throw new import_provider10.UnsupportedFunctionalityError({
       functionality: "element streams in no-schema mode"
     });
   }
@@ -15599,10 +16918,10 @@ var objectOutputStrategy = (schema) => ({
     };
   },
   validateFinalResult(value) {
-    return (0, import_provider_utils5.safeValidateTypes)({ value, schema });
+    return (0, import_provider_utils4.safeValidateTypes)({ value, schema });
   },
   createElementStream() {
-    throw new import_provider9.UnsupportedFunctionalityError({
+    throw new import_provider10.UnsupportedFunctionalityError({
       functionality: "element streams in object mode"
     });
   }
@@ -15625,10 +16944,10 @@ var arrayOutputStrategy = (schema) => {
     },
     validatePartialResult({ value, latestObject, isFirstDelta, isFinalDelta }) {
       var _a11;
-      if (!(0, import_provider9.isJSONObject)(value) || !(0, import_provider9.isJSONArray)(value.elements)) {
+      if (!(0, import_provider10.isJSONObject)(value) || !(0, import_provider10.isJSONArray)(value.elements)) {
         return {
           success: false,
-          error: new import_provider9.TypeValidationError({
+          error: new import_provider10.TypeValidationError({
             value,
             cause: "value must be an object that contains an array of elements"
           })
@@ -15638,7 +16957,7 @@ var arrayOutputStrategy = (schema) => {
       const resultArray = [];
       for (let i = 0; i < inputArray.length; i++) {
         const element = inputArray[i];
-        const result = (0, import_provider_utils5.safeValidateTypes)({ value: element, schema });
+        const result = (0, import_provider_utils4.safeValidateTypes)({ value: element, schema });
         if (i === inputArray.length - 1 && !isFinalDelta) {
           continue;
         }
@@ -15668,10 +16987,10 @@ var arrayOutputStrategy = (schema) => {
       };
     },
     validateFinalResult(value) {
-      if (!(0, import_provider9.isJSONObject)(value) || !(0, import_provider9.isJSONArray)(value.elements)) {
+      if (!(0, import_provider10.isJSONObject)(value) || !(0, import_provider10.isJSONArray)(value.elements)) {
         return {
           success: false,
-          error: new import_provider9.TypeValidationError({
+          error: new import_provider10.TypeValidationError({
             value,
             cause: "value must be an object that contains an array of elements"
           })
@@ -15679,7 +16998,7 @@ var arrayOutputStrategy = (schema) => {
       }
       const inputArray = value.elements;
       for (const element of inputArray) {
-        const result = (0, import_provider_utils5.safeValidateTypes)({ value: element, schema });
+        const result = (0, import_provider_utils4.safeValidateTypes)({ value: element, schema });
         if (!result.success) {
           return result;
         }
@@ -15730,10 +17049,10 @@ var enumOutputStrategy = (enumValues) => {
       additionalProperties: false
     },
     validateFinalResult(value) {
-      if (!(0, import_provider9.isJSONObject)(value) || typeof value.result !== "string") {
+      if (!(0, import_provider10.isJSONObject)(value) || typeof value.result !== "string") {
         return {
           success: false,
-          error: new import_provider9.TypeValidationError({
+          error: new import_provider10.TypeValidationError({
             value,
             cause: 'value must be an object that contains a string in the "result" property.'
           })
@@ -15742,19 +17061,19 @@ var enumOutputStrategy = (enumValues) => {
       const result = value.result;
       return enumValues.includes(result) ? { success: true, value: result } : {
         success: false,
-        error: new import_provider9.TypeValidationError({
+        error: new import_provider10.TypeValidationError({
           value,
           cause: "value must be a string in the enum"
         })
       };
     },
     validatePartialResult() {
-      throw new import_provider9.UnsupportedFunctionalityError({
+      throw new import_provider10.UnsupportedFunctionalityError({
         functionality: "partial results in enum mode"
       });
     },
     createElementStream() {
-      throw new import_provider9.UnsupportedFunctionalityError({
+      throw new import_provider10.UnsupportedFunctionalityError({
         functionality: "element streams in enum mode"
       });
     }
@@ -15908,7 +17227,7 @@ function validateObjectGenerationInput({
 }
 
 // core/generate-object/generate-object.ts
-var originalGenerateId = (0, import_provider_utils6.createIdGenerator)({ prefix: "aiobj-", size: 24 });
+var originalGenerateId = (0, import_provider_utils5.createIdGenerator)({ prefix: "aiobj", size: 24 });
 async function generateObject({
   model,
   enum: enumValues,
@@ -15978,6 +17297,7 @@ async function generateObject({
     }),
     tracer,
     fn: async (span) => {
+      var _a11, _b;
       const retry = retryWithExponentialBackoff({ maxRetries });
       if (mode === "auto" || mode == null) {
         mode = model.defaultObjectGenerationMode;
@@ -15988,21 +17308,26 @@ async function generateObject({
       let warnings;
       let rawResponse;
       let response;
+      let request;
       let logprobs;
       let resultProviderMetadata;
       switch (mode) {
         case "json": {
-          const standardPrompt = standardizePrompt({
-            system: outputStrategy.jsonSchema == null ? injectJsonInstruction({ prompt: system }) : model.supportsStructuredOutputs ? system : injectJsonInstruction({
-              prompt: system,
-              schema: outputStrategy.jsonSchema
-            }),
-            prompt,
-            messages
+          const standardizedPrompt = standardizePrompt({
+            prompt: {
+              system: outputStrategy.jsonSchema == null ? injectJsonInstruction({ prompt: system }) : model.supportsStructuredOutputs ? system : injectJsonInstruction({
+                prompt: system,
+                schema: outputStrategy.jsonSchema
+              }),
+              prompt,
+              messages
+            },
+            tools: void 0
           });
           const promptMessages = await convertToLanguageModelPrompt({
-            prompt: standardPrompt,
-            modelSupportsImageUrls: model.supportsImageUrls
+            prompt: standardizedPrompt,
+            modelSupportsImageUrls: model.supportsImageUrls,
+            modelSupportsUrl: model.supportsUrl
           });
           const generateResult = await retry(
             () => recordSpan({
@@ -16016,7 +17341,7 @@ async function generateObject({
                   }),
                   ...baseTelemetryAttributes,
                   "ai.prompt.format": {
-                    input: () => standardPrompt.type
+                    input: () => standardizedPrompt.type
                   },
                   "ai.prompt.messages": {
                     input: () => JSON.stringify(promptMessages)
@@ -16035,7 +17360,7 @@ async function generateObject({
               }),
               tracer,
               fn: async (span2) => {
-                var _a11, _b, _c, _d, _e, _f;
+                var _a12, _b2, _c, _d, _e, _f;
                 const result2 = await model.doGenerate({
                   mode: {
                     type: "object-json",
@@ -16044,7 +17369,7 @@ async function generateObject({
                     description: schemaDescription
                   },
                   ...prepareCallSettings(settings),
-                  inputFormat: standardPrompt.type,
+                  inputFormat: standardizedPrompt.type,
                   prompt: promptMessages,
                   providerMetadata,
                   abortSignal,
@@ -16054,7 +17379,7 @@ async function generateObject({
                   throw new NoObjectGeneratedError();
                 }
                 const responseData = {
-                  id: (_b = (_a11 = result2.response) == null ? void 0 : _a11.id) != null ? _b : generateId3(),
+                  id: (_b2 = (_a12 = result2.response) == null ? void 0 : _a12.id) != null ? _b2 : generateId3(),
                   timestamp: (_d = (_c = result2.response) == null ? void 0 : _c.timestamp) != null ? _d : currentDate(),
                   modelId: (_f = (_e = result2.response) == null ? void 0 : _e.modelId) != null ? _f : model.modelId
                 };
@@ -16092,20 +17417,21 @@ async function generateObject({
           rawResponse = generateResult.rawResponse;
           logprobs = generateResult.logprobs;
           resultProviderMetadata = generateResult.providerMetadata;
+          request = (_a11 = generateResult.request) != null ? _a11 : {};
           response = generateResult.responseData;
           break;
         }
         case "tool": {
-          const validatedPrompt = standardizePrompt({
-            system,
-            prompt,
-            messages
+          const standardizedPrompt = standardizePrompt({
+            prompt: { system, prompt, messages },
+            tools: void 0
           });
           const promptMessages = await convertToLanguageModelPrompt({
-            prompt: validatedPrompt,
-            modelSupportsImageUrls: model.supportsImageUrls
+            prompt: standardizedPrompt,
+            modelSupportsImageUrls: model.supportsImageUrls,
+            modelSupportsUrl: model.supportsUrl
           });
-          const inputFormat = validatedPrompt.type;
+          const inputFormat = standardizedPrompt.type;
           const generateResult = await retry(
             () => recordSpan({
               name: "ai.generateObject.doGenerate",
@@ -16137,7 +17463,7 @@ async function generateObject({
               }),
               tracer,
               fn: async (span2) => {
-                var _a11, _b, _c, _d, _e, _f, _g, _h;
+                var _a12, _b2, _c, _d, _e, _f, _g, _h;
                 const result2 = await model.doGenerate({
                   mode: {
                     type: "object-tool",
@@ -16155,7 +17481,7 @@ async function generateObject({
                   abortSignal,
                   headers
                 });
-                const objectText = (_b = (_a11 = result2.toolCalls) == null ? void 0 : _a11[0]) == null ? void 0 : _b.args;
+                const objectText = (_b2 = (_a12 = result2.toolCalls) == null ? void 0 : _a12[0]) == null ? void 0 : _b2.args;
                 if (objectText === void 0) {
                   throw new NoObjectGeneratedError();
                 }
@@ -16198,6 +17524,7 @@ async function generateObject({
           rawResponse = generateResult.rawResponse;
           logprobs = generateResult.logprobs;
           resultProviderMetadata = generateResult.providerMetadata;
+          request = (_b = generateResult.request) != null ? _b : {};
           response = generateResult.responseData;
           break;
         }
@@ -16211,7 +17538,7 @@ async function generateObject({
           throw new Error(`Unsupported mode: ${_exhaustiveCheck}`);
         }
       }
-      const parseResult = (0, import_provider_utils6.safeParseJSON)({ text: result });
+      const parseResult = (0, import_provider_utils5.safeParseJSON)({ text: result });
       if (!parseResult.success) {
         throw parseResult.error;
       }
@@ -16244,6 +17571,7 @@ async function generateObject({
         finishReason,
         usage: calculateLanguageModelUsage(usage),
         warnings,
+        request,
         response: {
           ...response,
           headers: rawResponse == null ? void 0 : rawResponse.headers
@@ -16262,6 +17590,7 @@ var DefaultGenerateObjectResult = class {
     this.warnings = options.warnings;
     this.experimental_providerMetadata = options.providerMetadata;
     this.response = options.response;
+    this.request = options.request;
     this.rawResponse = {
       headers: options.response.headers
     };
@@ -16280,7 +17609,7 @@ var DefaultGenerateObjectResult = class {
 var experimental_generateObject = generateObject;
 
 // core/generate-object/stream-object.ts
-var import_provider_utils7 = __nccwpck_require__(1746);
+var import_provider_utils6 = __nccwpck_require__(5168);
 var import_ui_utils2 = __nccwpck_require__(8099);
 
 // util/create-resolvable-promise.ts
@@ -16390,7 +17719,7 @@ function writeToServerResponse({
 }
 
 // core/generate-object/stream-object.ts
-var originalGenerateId2 = (0, import_provider_utils7.createIdGenerator)({ prefix: "aiobj-", size: 24 });
+var originalGenerateId2 = (0, import_provider_utils6.createIdGenerator)({ prefix: "aiobj", size: 24 });
 async function streamObject({
   model,
   schema: inputSchema,
@@ -16464,13 +17793,16 @@ async function streamObject({
       let transformer;
       switch (mode) {
         case "json": {
-          const standardPrompt = standardizePrompt({
-            system: outputStrategy.jsonSchema == null ? injectJsonInstruction({ prompt: system }) : model.supportsStructuredOutputs ? system : injectJsonInstruction({
-              prompt: system,
-              schema: outputStrategy.jsonSchema
-            }),
-            prompt,
-            messages
+          const standardizedPrompt = standardizePrompt({
+            prompt: {
+              system: outputStrategy.jsonSchema == null ? injectJsonInstruction({ prompt: system }) : model.supportsStructuredOutputs ? system : injectJsonInstruction({
+                prompt: system,
+                schema: outputStrategy.jsonSchema
+              }),
+              prompt,
+              messages
+            },
+            tools: void 0
           });
           callOptions = {
             mode: {
@@ -16480,10 +17812,11 @@ async function streamObject({
               description: schemaDescription
             },
             ...prepareCallSettings(settings),
-            inputFormat: standardPrompt.type,
+            inputFormat: standardizedPrompt.type,
             prompt: await convertToLanguageModelPrompt({
-              prompt: standardPrompt,
-              modelSupportsImageUrls: model.supportsImageUrls
+              prompt: standardizedPrompt,
+              modelSupportsImageUrls: model.supportsImageUrls,
+              modelSupportsUrl: model.supportsUrl
             }),
             providerMetadata,
             abortSignal,
@@ -16506,10 +17839,9 @@ async function streamObject({
           break;
         }
         case "tool": {
-          const validatedPrompt = standardizePrompt({
-            system,
-            prompt,
-            messages
+          const standardizedPrompt = standardizePrompt({
+            prompt: { system, prompt, messages },
+            tools: void 0
           });
           callOptions = {
             mode: {
@@ -16522,10 +17854,11 @@ async function streamObject({
               }
             },
             ...prepareCallSettings(settings),
-            inputFormat: validatedPrompt.type,
+            inputFormat: standardizedPrompt.type,
             prompt: await convertToLanguageModelPrompt({
-              prompt: validatedPrompt,
-              modelSupportsImageUrls: model.supportsImageUrls
+              prompt: standardizedPrompt,
+              modelSupportsImageUrls: model.supportsImageUrls,
+              modelSupportsUrl: model.supportsUrl
             }),
             providerMetadata,
             abortSignal,
@@ -16558,7 +17891,7 @@ async function streamObject({
         }
       }
       const {
-        result: { stream, warnings, rawResponse },
+        result: { stream, warnings, rawResponse, request },
         doStreamSpan,
         startTimestampMs
       } = await retry(
@@ -16604,6 +17937,7 @@ async function streamObject({
         stream: stream.pipeThrough(new TransformStream(transformer)),
         warnings,
         rawResponse,
+        request: request != null ? request : {},
         onFinish,
         rootSpan,
         doStreamSpan,
@@ -16622,6 +17956,7 @@ var DefaultStreamObjectResult = class {
     stream,
     warnings,
     rawResponse,
+    request,
     outputStrategy,
     onFinish,
     rootSpan,
@@ -16636,6 +17971,7 @@ var DefaultStreamObjectResult = class {
     this.warnings = warnings;
     this.rawResponse = rawResponse;
     this.outputStrategy = outputStrategy;
+    this.request = Promise.resolve(request);
     this.objectPromise = new DelayedPromise();
     const { resolve: resolveUsage, promise: usagePromise } = createResolvablePromise();
     this.usage = usagePromise;
@@ -16893,39 +18229,39 @@ var DefaultStreamObjectResult = class {
 var experimental_streamObject = streamObject;
 
 // core/generate-text/generate-text.ts
-var import_provider_utils9 = __nccwpck_require__(1746);
+var import_provider_utils8 = __nccwpck_require__(5168);
 
 // errors/index.ts
-var import_provider13 = __nccwpck_require__(2466);
+var import_provider13 = __nccwpck_require__(6468);
 
 // errors/invalid-tool-arguments-error.ts
-var import_provider10 = __nccwpck_require__(2466);
-var name7 = "AI_InvalidToolArgumentsError";
-var marker7 = `vercel.ai.error.${name7}`;
-var symbol7 = Symbol.for(marker7);
-var _a7;
-var InvalidToolArgumentsError = class extends import_provider10.AISDKError {
+var import_provider11 = __nccwpck_require__(6468);
+var name8 = "AI_InvalidToolArgumentsError";
+var marker8 = `vercel.ai.error.${name8}`;
+var symbol8 = Symbol.for(marker8);
+var _a8;
+var InvalidToolArgumentsError = class extends import_provider11.AISDKError {
   constructor({
     toolArgs,
     toolName,
     cause,
-    message = `Invalid arguments for tool ${toolName}: ${(0, import_provider10.getErrorMessage)(
+    message = `Invalid arguments for tool ${toolName}: ${(0, import_provider11.getErrorMessage)(
       cause
     )}`
   }) {
-    super({ name: name7, message, cause });
-    this[_a7] = true;
+    super({ name: name8, message, cause });
+    this[_a8] = true;
     this.toolArgs = toolArgs;
     this.toolName = toolName;
   }
   static isInstance(error) {
-    return import_provider10.AISDKError.hasMarker(error, marker7);
+    return import_provider11.AISDKError.hasMarker(error, marker8);
   }
   /**
    * @deprecated use `isInstance` instead
    */
   static isInvalidToolArgumentsError(error) {
-    return error instanceof Error && error.name === name7 && typeof error.toolName === "string" && typeof error.toolArgs === "string";
+    return error instanceof Error && error.name === name8 && typeof error.toolName === "string" && typeof error.toolArgs === "string";
   }
   /**
    * @deprecated Do not use this method. It will be removed in the next major version.
@@ -16941,33 +18277,33 @@ var InvalidToolArgumentsError = class extends import_provider10.AISDKError {
     };
   }
 };
-_a7 = symbol7;
+_a8 = symbol8;
 
 // errors/no-such-tool-error.ts
-var import_provider11 = __nccwpck_require__(2466);
-var name8 = "AI_NoSuchToolError";
-var marker8 = `vercel.ai.error.${name8}`;
-var symbol8 = Symbol.for(marker8);
-var _a8;
-var NoSuchToolError = class extends import_provider11.AISDKError {
+var import_provider12 = __nccwpck_require__(6468);
+var name9 = "AI_NoSuchToolError";
+var marker9 = `vercel.ai.error.${name9}`;
+var symbol9 = Symbol.for(marker9);
+var _a9;
+var NoSuchToolError = class extends import_provider12.AISDKError {
   constructor({
     toolName,
     availableTools = void 0,
     message = `Model tried to call unavailable tool '${toolName}'. ${availableTools === void 0 ? "No tools are available." : `Available tools: ${availableTools.join(", ")}.`}`
   }) {
-    super({ name: name8, message });
-    this[_a8] = true;
+    super({ name: name9, message });
+    this[_a9] = true;
     this.toolName = toolName;
     this.availableTools = availableTools;
   }
   static isInstance(error) {
-    return import_provider11.AISDKError.hasMarker(error, marker8);
+    return import_provider12.AISDKError.hasMarker(error, marker9);
   }
   /**
    * @deprecated use `isInstance` instead
    */
   static isNoSuchToolError(error) {
-    return error instanceof Error && error.name === name8 && "toolName" in error && error.toolName != void 0 && typeof error.name === "string";
+    return error instanceof Error && error.name === name9 && "toolName" in error && error.toolName != void 0 && typeof error.name === "string";
   }
   /**
    * @deprecated Do not use this method. It will be removed in the next major version.
@@ -16980,27 +18316,6 @@ var NoSuchToolError = class extends import_provider11.AISDKError {
       toolName: this.toolName,
       availableTools: this.availableTools
     };
-  }
-};
-_a8 = symbol8;
-
-// core/prompt/message-conversion-error.ts
-var import_provider12 = __nccwpck_require__(2466);
-var name9 = "AI_MessageConversionError";
-var marker9 = `vercel.ai.error.${name9}`;
-var symbol9 = Symbol.for(marker9);
-var _a9;
-var MessageConversionError = class extends import_provider12.AISDKError {
-  constructor({
-    originalMessage,
-    message
-  }) {
-    super({ name: name9, message });
-    this[_a9] = true;
-    this.originalMessage = originalMessage;
-  }
-  static isInstance(error) {
-    return import_provider12.AISDKError.hasMarker(error, marker9);
   }
 };
 _a9 = symbol9;
@@ -17029,12 +18344,30 @@ function prepareToolsAndToolChoice({
     ([name11]) => activeTools.includes(name11)
   ) : Object.entries(tools);
   return {
-    tools: filteredTools.map(([name11, tool2]) => ({
-      type: "function",
-      name: name11,
-      description: tool2.description,
-      parameters: (0, import_ui_utils3.asSchema)(tool2.parameters).jsonSchema
-    })),
+    tools: filteredTools.map(([name11, tool2]) => {
+      const toolType = tool2.type;
+      switch (toolType) {
+        case void 0:
+        case "function":
+          return {
+            type: "function",
+            name: name11,
+            description: tool2.description,
+            parameters: (0, import_ui_utils3.asSchema)(tool2.parameters).jsonSchema
+          };
+        case "provider-defined":
+          return {
+            type: "provider-defined",
+            name: name11,
+            id: tool2.id,
+            args: tool2.args
+          };
+        default: {
+          const exhaustiveCheck = toolType;
+          throw new Error(`Unsupported tool type: ${exhaustiveCheck}`);
+        }
+      }
+    }),
     toolChoice: toolChoice == null ? { type: "auto" } : typeof toolChoice === "string" ? { type: toolChoice } : { type: "tool", toolName: toolChoice.toolName }
   };
 }
@@ -17053,7 +18386,7 @@ function removeTextAfterLastWhitespace(text) {
 }
 
 // core/generate-text/parse-tool-call.ts
-var import_provider_utils8 = __nccwpck_require__(1746);
+var import_provider_utils7 = __nccwpck_require__(5168);
 var import_ui_utils4 = __nccwpck_require__(8099);
 function parseToolCall({
   toolCall,
@@ -17071,7 +18404,7 @@ function parseToolCall({
     });
   }
   const schema = (0, import_ui_utils4.asSchema)(tool2.parameters);
-  const parseResult = toolCall.args.trim() === "" ? (0, import_provider_utils8.safeValidateTypes)({ value: {}, schema }) : (0, import_provider_utils8.safeParseJSON)({ text: toolCall.args, schema });
+  const parseResult = toolCall.args.trim() === "" ? (0, import_provider_utils7.safeValidateTypes)({ value: {}, schema }) : (0, import_provider_utils7.safeParseJSON)({ text: toolCall.args, schema });
   if (parseResult.success === false) {
     throw new InvalidToolArgumentsError({
       toolName,
@@ -17090,6 +18423,7 @@ function parseToolCall({
 // core/generate-text/to-response-messages.ts
 function toResponseMessages({
   text = "",
+  tools,
   toolCalls,
   toolResults
 }) {
@@ -17101,19 +18435,30 @@ function toResponseMessages({
   if (toolResults.length > 0) {
     responseMessages.push({
       role: "tool",
-      content: toolResults.map((result) => ({
-        type: "tool-result",
-        toolCallId: result.toolCallId,
-        toolName: result.toolName,
-        result: result.result
-      }))
+      content: toolResults.map((toolResult) => {
+        const tool2 = tools[toolResult.toolName];
+        return (tool2 == null ? void 0 : tool2.experimental_toToolResultContent) != null ? {
+          type: "tool-result",
+          toolCallId: toolResult.toolCallId,
+          toolName: toolResult.toolName,
+          result: tool2.experimental_toToolResultContent(toolResult.result),
+          experimental_content: tool2.experimental_toToolResultContent(
+            toolResult.result
+          )
+        } : {
+          type: "tool-result",
+          toolCallId: toolResult.toolCallId,
+          toolName: toolResult.toolName,
+          result: toolResult.result
+        };
+      })
     });
   }
   return responseMessages;
 }
 
 // core/generate-text/generate-text.ts
-var originalGenerateId3 = (0, import_provider_utils9.createIdGenerator)({ prefix: "aitxt-", size: 24 });
+var originalGenerateId3 = (0, import_provider_utils8.createIdGenerator)({ prefix: "aitxt", size: 24 });
 async function generateText({
   model,
   tools,
@@ -17152,6 +18497,10 @@ async function generateText({
     headers,
     settings: { ...settings, maxRetries }
   });
+  const initialPrompt = standardizePrompt({
+    prompt: { system, prompt, messages },
+    tools
+  });
   const tracer = getTracer(telemetry);
   return recordSpan({
     name: "ai.generateText",
@@ -17172,9 +18521,8 @@ async function generateText({
     }),
     tracer,
     fn: async (span) => {
-      var _a11, _b, _c, _d, _e;
+      var _a11, _b, _c, _d, _e, _f;
       const retry = retryWithExponentialBackoff({ maxRetries });
-      const currentPrompt = standardizePrompt({ system, prompt, messages });
       const mode = {
         type: "regular",
         ...prepareToolsAndToolChoice({ tools, toolChoice, activeTools })
@@ -17195,11 +18543,17 @@ async function generateText({
       let stepType = "initial";
       do {
         if (stepCount === 1) {
-          currentPrompt.type = "messages";
+          initialPrompt.type = "messages";
         }
+        const promptFormat = stepCount === 0 ? initialPrompt.type : "messages";
         const promptMessages = await convertToLanguageModelPrompt({
-          prompt: currentPrompt,
-          modelSupportsImageUrls: model.supportsImageUrls
+          prompt: {
+            type: promptFormat,
+            system: initialPrompt.system,
+            messages: [...initialPrompt.messages, ...responseMessages]
+          },
+          modelSupportsImageUrls: model.supportsImageUrls,
+          modelSupportsUrl: model.supportsUrl
         });
         currentModelResponse = await retry(
           () => recordSpan({
@@ -17212,9 +18566,19 @@ async function generateText({
                   telemetry
                 }),
                 ...baseTelemetryAttributes,
-                "ai.prompt.format": { input: () => currentPrompt.type },
+                "ai.prompt.format": { input: () => promptFormat },
                 "ai.prompt.messages": {
                   input: () => JSON.stringify(promptMessages)
+                },
+                "ai.prompt.tools": {
+                  // convert the language model level tools:
+                  input: () => {
+                    var _a12;
+                    return (_a12 = mode.tools) == null ? void 0 : _a12.map((tool2) => JSON.stringify(tool2));
+                  }
+                },
+                "ai.prompt.toolChoice": {
+                  input: () => mode.toolChoice != null ? JSON.stringify(mode.toolChoice) : void 0
                 },
                 // standardized gen-ai llm span attributes:
                 "gen_ai.system": model.provider,
@@ -17230,11 +18594,11 @@ async function generateText({
             }),
             tracer,
             fn: async (span2) => {
-              var _a12, _b2, _c2, _d2, _e2, _f;
+              var _a12, _b2, _c2, _d2, _e2, _f2;
               const result = await model.doGenerate({
                 mode,
                 ...callSettings,
-                inputFormat: currentPrompt.type,
+                inputFormat: promptFormat,
                 prompt: promptMessages,
                 providerMetadata,
                 abortSignal,
@@ -17243,7 +18607,7 @@ async function generateText({
               const responseData = {
                 id: (_b2 = (_a12 = result.response) == null ? void 0 : _a12.id) != null ? _b2 : generateId3(),
                 timestamp: (_d2 = (_c2 = result.response) == null ? void 0 : _c2.timestamp) != null ? _d2 : currentDate(),
-                modelId: (_f = (_e2 = result.response) == null ? void 0 : _e2.modelId) != null ? _f : model.modelId
+                modelId: (_f2 = (_e2 = result.response) == null ? void 0 : _e2.modelId) != null ? _f2 : model.modelId
               };
               span2.setAttributes(
                 selectTelemetryAttributes({
@@ -17311,9 +18675,32 @@ async function generateText({
             nextStepType = "tool-result";
           }
         }
-        const stepText = nextStepType === "continue" ? removeTextAfterLastWhitespace((_b = currentModelResponse.text) != null ? _b : "") : (_c = currentModelResponse.text) != null ? _c : "";
+        const originalText = (_b = currentModelResponse.text) != null ? _b : "";
+        const stepTextLeadingWhitespaceTrimmed = stepType === "continue" && // only for continue steps
+        text.trimEnd() !== text ? originalText.trimStart() : originalText;
+        const stepText = nextStepType === "continue" ? removeTextAfterLastWhitespace(stepTextLeadingWhitespaceTrimmed) : stepTextLeadingWhitespaceTrimmed;
         text = nextStepType === "continue" || stepType === "continue" ? text + stepText : stepText;
-        const currentStep = {
+        if (stepType === "continue") {
+          const lastMessage = responseMessages[responseMessages.length - 1];
+          if (typeof lastMessage.content === "string") {
+            lastMessage.content += stepText;
+          } else {
+            lastMessage.content.push({
+              text: stepText,
+              type: "text"
+            });
+          }
+        } else {
+          responseMessages.push(
+            ...toResponseMessages({
+              text,
+              tools: tools != null ? tools : {},
+              toolCalls: currentToolCalls,
+              toolResults: currentToolResults
+            })
+          );
+        }
+        const currentStepResult = {
           stepType,
           text: stepText,
           toolCalls: currentToolCalls,
@@ -17322,36 +18709,18 @@ async function generateText({
           usage: currentUsage,
           warnings: currentModelResponse.warnings,
           logprobs: currentModelResponse.logprobs,
+          request: (_c = currentModelResponse.request) != null ? _c : {},
           response: {
             ...currentModelResponse.response,
-            headers: (_d = currentModelResponse.rawResponse) == null ? void 0 : _d.headers
+            headers: (_d = currentModelResponse.rawResponse) == null ? void 0 : _d.headers,
+            // deep clone msgs to avoid mutating past messages in multi-step:
+            messages: JSON.parse(JSON.stringify(responseMessages))
           },
           experimental_providerMetadata: currentModelResponse.providerMetadata,
           isContinued: nextStepType === "continue"
         };
-        steps.push(currentStep);
-        await (onStepFinish == null ? void 0 : onStepFinish(currentStep));
-        if (stepType === "continue") {
-          const lastMessage = currentPrompt.messages[currentPrompt.messages.length - 1];
-          if (typeof lastMessage.content === "string") {
-            lastMessage.content = text;
-          } else {
-            lastMessage.content.push({
-              text: stepText,
-              type: "text"
-            });
-          }
-          responseMessages[responseMessages.length - 1] = lastMessage;
-          currentPrompt.messages[currentPrompt.messages.length - 1] = lastMessage;
-        } else {
-          const newResponseMessages = toResponseMessages({
-            text,
-            toolCalls: currentToolCalls,
-            toolResults: currentToolResults
-          });
-          responseMessages.push(...newResponseMessages);
-          currentPrompt.messages.push(...newResponseMessages);
-        }
+        steps.push(currentStepResult);
+        await (onStepFinish == null ? void 0 : onStepFinish(currentStepResult));
         stepType = nextStepType;
       } while (stepType !== "done");
       span.setAttributes(
@@ -17385,9 +18754,11 @@ async function generateText({
         finishReason: currentModelResponse.finishReason,
         usage,
         warnings: currentModelResponse.warnings,
+        request: (_e = currentModelResponse.request) != null ? _e : {},
         response: {
           ...currentModelResponse.response,
-          headers: (_e = currentModelResponse.rawResponse) == null ? void 0 : _e.headers
+          headers: (_f = currentModelResponse.rawResponse) == null ? void 0 : _f.headers,
+          messages: responseMessages
         },
         logprobs: currentModelResponse.logprobs,
         responseMessages,
@@ -17465,6 +18836,7 @@ var DefaultGenerateTextResult = class {
     this.finishReason = options.finishReason;
     this.usage = options.usage;
     this.warnings = options.warnings;
+    this.request = options.request;
     this.response = options.response;
     this.responseMessages = options.responseMessages;
     this.roundtrips = options.steps;
@@ -17479,7 +18851,7 @@ var DefaultGenerateTextResult = class {
 var experimental_generateText = generateText;
 
 // core/generate-text/stream-text.ts
-var import_provider_utils10 = __nccwpck_require__(1746);
+var import_provider_utils9 = __nccwpck_require__(5168);
 
 // core/util/create-stitchable-stream.ts
 function createStitchableStream() {
@@ -17641,8 +19013,6 @@ function runToolsTransformation({
   telemetry,
   abortSignal
 }) {
-  let canClose = false;
-  const outstandingToolCalls = /* @__PURE__ */ new Set();
   let toolResultsStreamController = null;
   const toolResultsStream = new ReadableStream({
     start(controller) {
@@ -17650,6 +19020,17 @@ function runToolsTransformation({
     }
   });
   const activeToolCalls = {};
+  const outstandingToolResults = /* @__PURE__ */ new Set();
+  let canClose = false;
+  let finishChunk = void 0;
+  function attemptClose() {
+    if (canClose && outstandingToolResults.size === 0) {
+      if (finishChunk != null) {
+        toolResultsStreamController.enqueue(finishChunk);
+      }
+      toolResultsStreamController.close();
+    }
+  }
   const forwardStream = new TransformStream({
     transform(chunk, controller) {
       const chunkType = chunk.type;
@@ -17707,7 +19088,7 @@ function runToolsTransformation({
             controller.enqueue(toolCall);
             if (tool2.execute != null) {
               const toolExecutionId = (0, import_ui_utils5.generateId)();
-              outstandingToolCalls.add(toolExecutionId);
+              outstandingToolResults.add(toolExecutionId);
               recordSpan({
                 name: "ai.toolCall",
                 attributes: selectTelemetryAttributes({
@@ -17732,10 +19113,8 @@ function runToolsTransformation({
                       type: "tool-result",
                       result
                     });
-                    outstandingToolCalls.delete(toolExecutionId);
-                    if (canClose && outstandingToolCalls.size === 0) {
-                      toolResultsStreamController.close();
-                    }
+                    outstandingToolResults.delete(toolExecutionId);
+                    attemptClose();
                     try {
                       span.setAttributes(
                         selectTelemetryAttributes({
@@ -17755,10 +19134,8 @@ function runToolsTransformation({
                       type: "error",
                       error
                     });
-                    outstandingToolCalls.delete(toolExecutionId);
-                    if (canClose && outstandingToolCalls.size === 0) {
-                      toolResultsStreamController.close();
-                    }
+                    outstandingToolResults.delete(toolExecutionId);
+                    attemptClose();
                   }
                 )
               });
@@ -17772,13 +19149,13 @@ function runToolsTransformation({
           break;
         }
         case "finish": {
-          controller.enqueue({
+          finishChunk = {
             type: "finish",
             finishReason: chunk.finishReason,
             logprobs: chunk.logprobs,
             usage: calculateLanguageModelUsage(chunk.usage),
             experimental_providerMetadata: chunk.providerMetadata
-          });
+          };
           break;
         }
         default: {
@@ -17789,9 +19166,7 @@ function runToolsTransformation({
     },
     flush() {
       canClose = true;
-      if (outstandingToolCalls.size === 0) {
-        toolResultsStreamController.close();
-      }
+      attemptClose();
     }
   });
   return new ReadableStream({
@@ -17822,7 +19197,7 @@ function runToolsTransformation({
 }
 
 // core/generate-text/stream-text.ts
-var originalGenerateId4 = (0, import_provider_utils10.createIdGenerator)({ prefix: "aitxt-", size: 24 });
+var originalGenerateId4 = (0, import_provider_utils9.createIdGenerator)({ prefix: "aitxt", size: 24 });
 async function streamText({
   model,
   tools,
@@ -17864,6 +19239,10 @@ async function streamText({
     settings: { ...settings, maxRetries }
   });
   const tracer = getTracer(telemetry);
+  const initialPrompt = standardizePrompt({
+    prompt: { system, prompt, messages },
+    tools
+  });
   return recordSpan({
     name: "ai.streamText",
     attributes: selectTelemetryAttributes({
@@ -17883,14 +19262,24 @@ async function streamText({
     fn: async (rootSpan) => {
       const retry = retryWithExponentialBackoff({ maxRetries });
       const startStep = async ({
-        currentPrompt: currentPrompt2
+        responseMessages
       }) => {
+        const promptFormat = responseMessages.length === 0 ? initialPrompt.type : "messages";
         const promptMessages = await convertToLanguageModelPrompt({
-          prompt: currentPrompt2,
-          modelSupportsImageUrls: model.supportsImageUrls
+          prompt: {
+            type: promptFormat,
+            system: initialPrompt.system,
+            messages: [...initialPrompt.messages, ...responseMessages]
+          },
+          modelSupportsImageUrls: model.supportsImageUrls,
+          modelSupportsUrl: model.supportsUrl
         });
+        const mode = {
+          type: "regular",
+          ...prepareToolsAndToolChoice({ tools, toolChoice, activeTools })
+        };
         const {
-          result: { stream: stream2, warnings: warnings2, rawResponse: rawResponse2 },
+          result: { stream: stream2, warnings: warnings2, rawResponse: rawResponse2, request: request2 },
           doStreamSpan: doStreamSpan2,
           startTimestampMs: startTimestampMs2
         } = await retry(
@@ -17905,10 +19294,20 @@ async function streamText({
                 }),
                 ...baseTelemetryAttributes,
                 "ai.prompt.format": {
-                  input: () => currentPrompt2.type
+                  input: () => promptFormat
                 },
                 "ai.prompt.messages": {
                   input: () => JSON.stringify(promptMessages)
+                },
+                "ai.prompt.tools": {
+                  // convert the language model level tools:
+                  input: () => {
+                    var _a11;
+                    return (_a11 = mode.tools) == null ? void 0 : _a11.map((tool2) => JSON.stringify(tool2));
+                  }
+                },
+                "ai.prompt.toolChoice": {
+                  input: () => mode.toolChoice != null ? JSON.stringify(mode.toolChoice) : void 0
                 },
                 // standardized gen-ai llm span attributes:
                 "gen_ai.system": model.provider,
@@ -17929,16 +19328,9 @@ async function streamText({
               // get before the call
               doStreamSpan: doStreamSpan3,
               result: await model.doStream({
-                mode: {
-                  type: "regular",
-                  ...prepareToolsAndToolChoice({
-                    tools,
-                    toolChoice,
-                    activeTools
-                  })
-                },
+                mode,
                 ...prepareCallSettings(settings),
-                inputFormat: currentPrompt2.type,
+                inputFormat: promptFormat,
                 prompt: promptMessages,
                 providerMetadata,
                 abortSignal,
@@ -17958,22 +19350,23 @@ async function streamText({
               abortSignal
             }),
             warnings: warnings2,
+            request: request2 != null ? request2 : {},
             rawResponse: rawResponse2
           },
           doStreamSpan: doStreamSpan2,
           startTimestampMs: startTimestampMs2
         };
       };
-      const currentPrompt = standardizePrompt({ system, prompt, messages });
       const {
-        result: { stream, warnings, rawResponse },
+        result: { stream, warnings, rawResponse, request },
         doStreamSpan,
         startTimestampMs
-      } = await startStep({ currentPrompt });
+      } = await startStep({ responseMessages: [] });
       return new DefaultStreamTextResult({
         stream,
         warnings,
         rawResponse,
+        request,
         onChunk,
         onFinish,
         onStepFinish,
@@ -17984,11 +19377,11 @@ async function streamText({
         maxSteps,
         continueSteps,
         startStep,
-        currentPrompt,
         modelId: model.modelId,
         now: now2,
         currentDate,
-        generateId: generateId3
+        generateId: generateId3,
+        tools
       });
     }
   });
@@ -17998,6 +19391,7 @@ var DefaultStreamTextResult = class {
     stream,
     warnings,
     rawResponse,
+    request,
     onChunk,
     onFinish,
     onStepFinish,
@@ -18008,11 +19402,11 @@ var DefaultStreamTextResult = class {
     maxSteps,
     continueSteps,
     startStep,
-    currentPrompt,
     modelId,
     now: now2,
     currentDate,
-    generateId: generateId3
+    generateId: generateId3,
+    tools
   }) {
     this.warnings = warnings;
     this.rawResponse = rawResponse;
@@ -18033,6 +19427,8 @@ var DefaultStreamTextResult = class {
       promise: providerMetadataPromise
     } = createResolvablePromise();
     this.experimental_providerMetadata = providerMetadataPromise;
+    const { resolve: resolveRequest, promise: requestPromise } = createResolvablePromise();
+    this.request = requestPromise;
     const { resolve: resolveResponse, promise: responsePromise } = createResolvablePromise();
     this.response = responsePromise;
     const {
@@ -18053,14 +19449,16 @@ var DefaultStreamTextResult = class {
       startTimestamp,
       doStreamSpan: doStreamSpan2,
       currentStep,
-      currentPrompt: currentPrompt2,
+      responseMessages,
       usage = {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0
       },
       stepType,
-      previousStepText = ""
+      previousStepText = "",
+      stepRequest,
+      hasLeadingWhitespace
     }) {
       const stepToolCalls = [];
       const stepToolResults = [];
@@ -18082,6 +19480,8 @@ var DefaultStreamTextResult = class {
       };
       let chunkBuffer = "";
       let chunkTextPublished = false;
+      let inWhitespacePrefix = true;
+      let hasWhitespaceSuffix = false;
       async function publishTextChunk({
         controller,
         chunk
@@ -18090,6 +19490,7 @@ var DefaultStreamTextResult = class {
         stepText += chunk.textDelta;
         fullStepText += chunk.textDelta;
         chunkTextPublished = true;
+        hasWhitespaceSuffix = chunk.textDelta.trimEnd() !== chunk.textDelta;
         await (onChunk == null ? void 0 : onChunk({ chunk }));
       }
       addStream(
@@ -18118,7 +19519,12 @@ var DefaultStreamTextResult = class {
               switch (chunkType) {
                 case "text-delta": {
                   if (continueSteps) {
-                    chunkBuffer += chunk.textDelta;
+                    const trimmedChunkText = inWhitespacePrefix && hasLeadingWhitespace ? chunk.textDelta.trimStart() : chunk.textDelta;
+                    if (trimmedChunkText.length === 0) {
+                      break;
+                    }
+                    inWhitespacePrefix = false;
+                    chunkBuffer += trimmedChunkText;
                     const split = splitOnLastWhitespace(chunkBuffer);
                     if (split != null) {
                       chunkBuffer = split.suffix;
@@ -18187,6 +19593,7 @@ var DefaultStreamTextResult = class {
             },
             // invoke onFinish callback and resolve toolResults promise when the stream is about to close:
             async flush(controller) {
+              var _a11;
               const stepToolCallsJson = stepToolCalls.length > 0 ? JSON.stringify(stepToolCalls) : void 0;
               let nextStepType = "done";
               if (currentStep + 1 < maxSteps) {
@@ -18252,10 +19659,32 @@ var DefaultStreamTextResult = class {
                 usage: stepUsage,
                 experimental_providerMetadata: stepProviderMetadata,
                 logprobs: stepLogProbs,
-                response: stepResponse,
+                response: {
+                  ...stepResponse
+                },
                 isContinued: nextStepType === "continue"
               });
-              const stepResult = {
+              if (stepType === "continue") {
+                const lastMessage = responseMessages[responseMessages.length - 1];
+                if (typeof lastMessage.content === "string") {
+                  lastMessage.content += stepText;
+                } else {
+                  lastMessage.content.push({
+                    text: stepText,
+                    type: "text"
+                  });
+                }
+              } else {
+                responseMessages.push(
+                  ...toResponseMessages({
+                    text: stepText,
+                    tools: tools != null ? tools : {},
+                    toolCalls: stepToolCalls,
+                    toolResults: stepToolResults
+                  })
+                );
+              }
+              const currentStepResult = {
                 stepType,
                 text: stepText,
                 toolCalls: stepToolCalls,
@@ -18264,49 +19693,30 @@ var DefaultStreamTextResult = class {
                 usage: stepUsage,
                 warnings: self.warnings,
                 logprobs: stepLogProbs,
-                response: stepResponse,
+                request: stepRequest,
                 rawResponse: self.rawResponse,
+                response: {
+                  ...stepResponse,
+                  headers: (_a11 = self.rawResponse) == null ? void 0 : _a11.headers,
+                  // deep clone msgs to avoid mutating past messages in multi-step:
+                  messages: JSON.parse(JSON.stringify(responseMessages))
+                },
                 experimental_providerMetadata: stepProviderMetadata,
                 isContinued: nextStepType === "continue"
               };
-              stepResults.push(stepResult);
-              await (onStepFinish == null ? void 0 : onStepFinish(stepResult));
+              stepResults.push(currentStepResult);
+              await (onStepFinish == null ? void 0 : onStepFinish(currentStepResult));
               const combinedUsage = {
                 promptTokens: usage.promptTokens + stepUsage.promptTokens,
                 completionTokens: usage.completionTokens + stepUsage.completionTokens,
                 totalTokens: usage.totalTokens + stepUsage.totalTokens
               };
               if (nextStepType !== "done") {
-                if (stepType === "continue") {
-                  const lastMessage = currentPrompt2.messages[currentPrompt2.messages.length - 1];
-                  if (typeof lastMessage.content === "string") {
-                    lastMessage.content = stepText;
-                  } else {
-                    lastMessage.content.push({
-                      text: stepText,
-                      type: "text"
-                    });
-                  }
-                  currentPrompt2.messages[currentPrompt2.messages.length - 1] = lastMessage;
-                } else {
-                  const newResponseMessages = toResponseMessages({
-                    text: stepText,
-                    toolCalls: stepToolCalls,
-                    toolResults: stepToolResults
-                  });
-                  currentPrompt2.messages.push(...newResponseMessages);
-                }
                 const {
                   result,
                   doStreamSpan: doStreamSpan3,
                   startTimestampMs: startTimestamp2
-                } = await startStep({
-                  currentPrompt: {
-                    type: "messages",
-                    system: currentPrompt2.system,
-                    messages: currentPrompt2.messages
-                  }
-                });
+                } = await startStep({ responseMessages });
                 self.warnings = result.warnings;
                 self.rawResponse = result.rawResponse;
                 addStepStream({
@@ -18314,10 +19724,12 @@ var DefaultStreamTextResult = class {
                   startTimestamp: startTimestamp2,
                   doStreamSpan: doStreamSpan3,
                   currentStep: currentStep + 1,
-                  currentPrompt: currentPrompt2,
+                  responseMessages,
                   usage: combinedUsage,
                   stepType: nextStepType,
-                  previousStepText: fullStepText
+                  previousStepText: fullStepText,
+                  stepRequest: result.request,
+                  hasLeadingWhitespace: hasWhitespaceSuffix
                 });
                 return;
               }
@@ -18328,7 +19740,9 @@ var DefaultStreamTextResult = class {
                   usage: combinedUsage,
                   experimental_providerMetadata: stepProviderMetadata,
                   logprobs: stepLogProbs,
-                  response: stepResponse
+                  response: {
+                    ...stepResponse
+                  }
                 });
                 closeStitchableStream();
                 rootSpan.setAttributes(
@@ -18351,37 +19765,17 @@ var DefaultStreamTextResult = class {
                     }
                   })
                 );
-                const responseMessages = stepResults.reduce((responseMessages2, step) => {
-                  if (step.stepType === "continue") {
-                    const lastResponseMessage = responseMessages2.pop();
-                    if (typeof lastResponseMessage.content === "string") {
-                      lastResponseMessage.content += step.text;
-                    } else {
-                      lastResponseMessage.content.push({
-                        text: step.text,
-                        type: "text"
-                      });
-                    }
-                    return [...responseMessages2, lastResponseMessage];
-                  }
-                  return [
-                    ...responseMessages2,
-                    ...toResponseMessages({
-                      text: step.text,
-                      toolCalls: step.toolCalls,
-                      toolResults: step.toolResults
-                    })
-                  ];
-                }, []);
                 resolveUsage(combinedUsage);
                 resolveFinishReason(stepFinishReason);
                 resolveText(fullStepText);
                 resolveToolCalls(stepToolCalls);
                 resolveProviderMetadata(stepProviderMetadata);
                 resolveToolResults(stepToolResults);
+                resolveRequest(stepRequest);
                 resolveResponse({
                   ...stepResponse,
-                  headers: rawResponse == null ? void 0 : rawResponse.headers
+                  headers: rawResponse == null ? void 0 : rawResponse.headers,
+                  messages: responseMessages
                 });
                 resolveSteps(stepResults);
                 resolveResponseMessages(responseMessages);
@@ -18396,10 +19790,12 @@ var DefaultStreamTextResult = class {
                   // optional as well. Therefore we need to cast the toolResults to any.
                   // The type exposed to the users will be correctly inferred.
                   toolResults: stepToolResults,
+                  request: stepRequest,
                   rawResponse,
                   response: {
                     ...stepResponse,
-                    headers: rawResponse == null ? void 0 : rawResponse.headers
+                    headers: rawResponse == null ? void 0 : rawResponse.headers,
+                    messages: responseMessages
                   },
                   warnings,
                   experimental_providerMetadata: stepProviderMetadata,
@@ -18421,9 +19817,11 @@ var DefaultStreamTextResult = class {
       startTimestamp: startTimestampMs,
       doStreamSpan,
       currentStep: 0,
-      currentPrompt,
+      responseMessages: [],
       usage: void 0,
-      stepType: "initial"
+      stepType: "initial",
+      stepRequest: request,
+      hasLeadingWhitespace: false
     });
   }
   /**
@@ -18462,7 +19860,7 @@ var DefaultStreamTextResult = class {
   }
   toDataStreamInternal({
     callbacks = {},
-    getErrorMessage: getErrorMessage4 = () => "",
+    getErrorMessage: getErrorMessage3 = () => "",
     // mask error messages for safety by default
     sendUsage = true
   } = {}) {
@@ -18537,7 +19935,7 @@ var DefaultStreamTextResult = class {
           }
           case "error": {
             controller.enqueue(
-              (0, import_ui_utils10.formatStreamPart)("error", getErrorMessage4(chunk.error))
+              (0, import_ui_utils10.formatStreamPart)("error", getErrorMessage3(chunk.error))
             );
             break;
           }
@@ -18585,7 +19983,7 @@ var DefaultStreamTextResult = class {
       statusText: "statusText" in options ? options.statusText : void 0
     };
     const data = options == null ? void 0 : "data" in options ? options.data : void 0;
-    const getErrorMessage4 = options == null ? void 0 : "getErrorMessage" in options ? options.getErrorMessage : void 0;
+    const getErrorMessage3 = options == null ? void 0 : "getErrorMessage" in options ? options.getErrorMessage : void 0;
     const sendUsage = options == null ? void 0 : "sendUsage" in options ? options.sendUsage : void 0;
     writeToServerResponse({
       response,
@@ -18595,7 +19993,7 @@ var DefaultStreamTextResult = class {
         contentType: "text/plain; charset=utf-8",
         dataStreamVersion: "v1"
       }),
-      stream: this.toDataStream({ data, getErrorMessage: getErrorMessage4, sendUsage })
+      stream: this.toDataStream({ data, getErrorMessage: getErrorMessage3, sendUsage })
     });
   }
   pipeTextStreamToResponse(response, init) {
@@ -18627,10 +20025,10 @@ var DefaultStreamTextResult = class {
       statusText: "statusText" in options ? options.statusText : void 0
     };
     const data = options == null ? void 0 : "data" in options ? options.data : void 0;
-    const getErrorMessage4 = options == null ? void 0 : "getErrorMessage" in options ? options.getErrorMessage : void 0;
+    const getErrorMessage3 = options == null ? void 0 : "getErrorMessage" in options ? options.getErrorMessage : void 0;
     const sendUsage = options == null ? void 0 : "sendUsage" in options ? options.sendUsage : void 0;
     return new Response(
-      this.toDataStream({ data, getErrorMessage: getErrorMessage4, sendUsage }),
+      this.toDataStream({ data, getErrorMessage: getErrorMessage3, sendUsage }),
       {
         status: (_a11 = init == null ? void 0 : init.status) != null ? _a11 : 200,
         statusText: init == null ? void 0 : init.statusText,
@@ -18672,6 +20070,7 @@ var experimental_wrapLanguageModel = ({
     modelId: modelId != null ? modelId : model.modelId,
     defaultObjectGenerationMode: model.defaultObjectGenerationMode,
     supportsImageUrls: model.supportsImageUrls,
+    supportsUrl: model.supportsUrl,
     supportsStructuredOutputs: model.supportsStructuredOutputs,
     async doGenerate(params) {
       const transformedParams = await doTransform({ params, type: "generate" });
@@ -18686,157 +20085,8 @@ var experimental_wrapLanguageModel = ({
   };
 };
 
-// core/prompt/attachments-to-parts.ts
-function attachmentsToParts(attachments) {
-  var _a11, _b, _c;
-  const parts = [];
-  for (const attachment of attachments) {
-    let url;
-    try {
-      url = new URL(attachment.url);
-    } catch (error) {
-      throw new Error(`Invalid URL: ${attachment.url}`);
-    }
-    switch (url.protocol) {
-      case "http:":
-      case "https:": {
-        if ((_a11 = attachment.contentType) == null ? void 0 : _a11.startsWith("image/")) {
-          parts.push({ type: "image", image: url });
-        } else {
-          if (!attachment.contentType) {
-            throw new Error(
-              "If the attachment is not an image, it must specify a content type"
-            );
-          }
-          parts.push({
-            type: "file",
-            data: url,
-            mimeType: attachment.contentType
-          });
-        }
-        break;
-      }
-      case "data:": {
-        let header;
-        let base64Content;
-        let mimeType;
-        try {
-          [header, base64Content] = attachment.url.split(",");
-          mimeType = header.split(";")[0].split(":")[1];
-        } catch (error) {
-          throw new Error(`Error processing data URL: ${attachment.url}`);
-        }
-        if (mimeType == null || base64Content == null) {
-          throw new Error(`Invalid data URL format: ${attachment.url}`);
-        }
-        if ((_b = attachment.contentType) == null ? void 0 : _b.startsWith("image/")) {
-          parts.push({
-            type: "image",
-            image: convertDataContentToUint8Array(base64Content)
-          });
-        } else if ((_c = attachment.contentType) == null ? void 0 : _c.startsWith("text/")) {
-          parts.push({
-            type: "text",
-            text: convertUint8ArrayToText(
-              convertDataContentToUint8Array(base64Content)
-            )
-          });
-        } else {
-          if (!attachment.contentType) {
-            throw new Error(
-              "If the attachment is not an image or text, it must specify a content type"
-            );
-          }
-          parts.push({
-            type: "file",
-            data: base64Content,
-            mimeType: attachment.contentType
-          });
-        }
-        break;
-      }
-      default: {
-        throw new Error(`Unsupported URL protocol: ${url.protocol}`);
-      }
-    }
-  }
-  return parts;
-}
-
-// core/prompt/convert-to-core-messages.ts
-function convertToCoreMessages(messages) {
-  const coreMessages = [];
-  for (const message of messages) {
-    const { role, content, toolInvocations, experimental_attachments } = message;
-    switch (role) {
-      case "system": {
-        coreMessages.push({
-          role: "system",
-          content
-        });
-        break;
-      }
-      case "user": {
-        coreMessages.push({
-          role: "user",
-          content: experimental_attachments ? [
-            { type: "text", text: content },
-            ...attachmentsToParts(experimental_attachments)
-          ] : content
-        });
-        break;
-      }
-      case "assistant": {
-        if (toolInvocations == null) {
-          coreMessages.push({ role: "assistant", content });
-          break;
-        }
-        coreMessages.push({
-          role: "assistant",
-          content: [
-            { type: "text", text: content },
-            ...toolInvocations.filter((invocation) => invocation.state !== "partial-call").map(({ toolCallId, toolName, args }) => ({
-              type: "tool-call",
-              toolCallId,
-              toolName,
-              args
-            }))
-          ]
-        });
-        const toolResults = toolInvocations.filter((invocation) => invocation.state === "result").map(({ toolCallId, toolName, args, result }) => ({
-          type: "tool-result",
-          toolCallId,
-          toolName,
-          args,
-          result
-        }));
-        if (toolResults.length > 0) {
-          coreMessages.push({
-            role: "tool",
-            content: toolResults
-          });
-        }
-        break;
-      }
-      case "function":
-      case "data":
-      case "tool": {
-        break;
-      }
-      default: {
-        const _exhaustiveCheck = role;
-        throw new MessageConversionError({
-          originalMessage: message,
-          message: `Unsupported role: ${_exhaustiveCheck}`
-        });
-      }
-    }
-  }
-  return coreMessages;
-}
-
 // core/registry/custom-provider.ts
-var import_provider14 = __nccwpck_require__(2466);
+var import_provider14 = __nccwpck_require__(6468);
 function experimental_customProvider({
   languageModels,
   textEmbeddingModels,
@@ -18865,7 +20115,7 @@ function experimental_customProvider({
 }
 
 // core/registry/no-such-provider-error.ts
-var import_provider15 = __nccwpck_require__(2466);
+var import_provider15 = __nccwpck_require__(6468);
 var name10 = "AI_NoSuchProviderError";
 var marker10 = `vercel.ai.error.${name10}`;
 var symbol10 = Symbol.for(marker10);
@@ -18910,7 +20160,7 @@ var NoSuchProviderError = class extends import_provider15.NoSuchModelError {
 _a10 = symbol10;
 
 // core/registry/provider-registry.ts
-var import_provider16 = __nccwpck_require__(2466);
+var import_provider16 = __nccwpck_require__(6468);
 function experimental_createProviderRegistry(providers) {
   const registry = new DefaultProviderRegistry();
   for (const [id, provider] of Object.entries(providers)) {
@@ -19007,7 +20257,7 @@ function magnitude(vector) {
 }
 
 // streams/ai-stream.ts
-var import_eventsource_parser = __nccwpck_require__(9107);
+var import_eventsource_parser = __nccwpck_require__(9273);
 function createEventStreamTransformer(customParser) {
   const textDecoder = new TextDecoder();
   let eventSourceParser;
@@ -20091,8 +21341,1259 @@ var StreamingTextResponse = class extends Response {
 };
 
 // streams/index.ts
-var generateId2 = import_provider_utils11.generateId;
-var nanoid = import_provider_utils11.generateId;
+var generateId2 = import_provider_utils10.generateId;
+var nanoid = import_provider_utils10.generateId;
+// Annotate the CommonJS export names for ESM import in node:
+0 && (0);
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 5168:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/index.ts
+var src_exports = {};
+__export(src_exports, {
+  asValidator: () => asValidator,
+  combineHeaders: () => combineHeaders,
+  convertAsyncGeneratorToReadableStream: () => convertAsyncGeneratorToReadableStream,
+  convertBase64ToUint8Array: () => convertBase64ToUint8Array,
+  convertUint8ArrayToBase64: () => convertUint8ArrayToBase64,
+  createEventSourceResponseHandler: () => createEventSourceResponseHandler,
+  createIdGenerator: () => createIdGenerator,
+  createJsonErrorResponseHandler: () => createJsonErrorResponseHandler,
+  createJsonResponseHandler: () => createJsonResponseHandler,
+  createJsonStreamResponseHandler: () => createJsonStreamResponseHandler,
+  extractResponseHeaders: () => extractResponseHeaders,
+  generateId: () => generateId,
+  getErrorMessage: () => getErrorMessage,
+  isAbortError: () => isAbortError,
+  isParsableJson: () => isParsableJson,
+  isParseableJson: () => isParseableJson,
+  isValidator: () => isValidator,
+  loadApiKey: () => loadApiKey,
+  loadOptionalSetting: () => loadOptionalSetting,
+  loadSetting: () => loadSetting,
+  parseJSON: () => parseJSON,
+  postJsonToApi: () => postJsonToApi,
+  postToApi: () => postToApi,
+  safeParseJSON: () => safeParseJSON,
+  safeValidateTypes: () => safeValidateTypes,
+  validateTypes: () => validateTypes,
+  validator: () => validator,
+  validatorSymbol: () => validatorSymbol,
+  withoutTrailingSlash: () => withoutTrailingSlash,
+  zodValidator: () => zodValidator
+});
+module.exports = __toCommonJS(src_exports);
+
+// src/combine-headers.ts
+function combineHeaders(...headers) {
+  return headers.reduce(
+    (combinedHeaders, currentHeaders) => ({
+      ...combinedHeaders,
+      ...currentHeaders != null ? currentHeaders : {}
+    }),
+    {}
+  );
+}
+
+// src/convert-async-generator-to-readable-stream.ts
+function convertAsyncGeneratorToReadableStream(stream) {
+  return new ReadableStream({
+    /**
+     * Called when the consumer wants to pull more data from the stream.
+     *
+     * @param {ReadableStreamDefaultController<T>} controller - The controller to enqueue data into the stream.
+     * @returns {Promise<void>}
+     */
+    async pull(controller) {
+      try {
+        const { value, done } = await stream.next();
+        if (done) {
+          controller.close();
+        } else {
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    /**
+     * Called when the consumer cancels the stream.
+     */
+    cancel() {
+    }
+  });
+}
+
+// src/extract-response-headers.ts
+function extractResponseHeaders(response) {
+  const headers = {};
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+  return headers;
+}
+
+// src/generate-id.ts
+var import_provider = __nccwpck_require__(6468);
+var import_non_secure = __nccwpck_require__(4910);
+var createIdGenerator = ({
+  prefix,
+  size: defaultSize = 7,
+  alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+  separator = "-"
+} = {}) => {
+  const generator = (0, import_non_secure.customAlphabet)(alphabet, defaultSize);
+  if (prefix == null) {
+    return generator;
+  }
+  if (alphabet.includes(separator)) {
+    throw new import_provider.InvalidArgumentError({
+      argument: "separator",
+      message: `The separator "${separator}" must not be part of the alphabet "${alphabet}".`
+    });
+  }
+  return (size) => `${prefix}${separator}${generator(size)}`;
+};
+var generateId = createIdGenerator();
+
+// src/get-error-message.ts
+function getErrorMessage(error) {
+  if (error == null) {
+    return "unknown error";
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return JSON.stringify(error);
+}
+
+// src/is-abort-error.ts
+function isAbortError(error) {
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
+}
+
+// src/load-api-key.ts
+var import_provider2 = __nccwpck_require__(6468);
+function loadApiKey({
+  apiKey,
+  environmentVariableName,
+  apiKeyParameterName = "apiKey",
+  description
+}) {
+  if (typeof apiKey === "string") {
+    return apiKey;
+  }
+  if (apiKey != null) {
+    throw new import_provider2.LoadAPIKeyError({
+      message: `${description} API key must be a string.`
+    });
+  }
+  if (typeof process === "undefined") {
+    throw new import_provider2.LoadAPIKeyError({
+      message: `${description} API key is missing. Pass it using the '${apiKeyParameterName}' parameter. Environment variables is not supported in this environment.`
+    });
+  }
+  apiKey = process.env[environmentVariableName];
+  if (apiKey == null) {
+    throw new import_provider2.LoadAPIKeyError({
+      message: `${description} API key is missing. Pass it using the '${apiKeyParameterName}' parameter or the ${environmentVariableName} environment variable.`
+    });
+  }
+  if (typeof apiKey !== "string") {
+    throw new import_provider2.LoadAPIKeyError({
+      message: `${description} API key must be a string. The value of the ${environmentVariableName} environment variable is not a string.`
+    });
+  }
+  return apiKey;
+}
+
+// src/load-setting.ts
+var import_provider3 = __nccwpck_require__(6468);
+function loadSetting({
+  settingValue,
+  environmentVariableName,
+  settingName,
+  description
+}) {
+  if (typeof settingValue === "string") {
+    return settingValue;
+  }
+  if (settingValue != null) {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting must be a string.`
+    });
+  }
+  if (typeof process === "undefined") {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting is missing. Pass it using the '${settingName}' parameter. Environment variables is not supported in this environment.`
+    });
+  }
+  settingValue = process.env[environmentVariableName];
+  if (settingValue == null) {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting is missing. Pass it using the '${settingName}' parameter or the ${environmentVariableName} environment variable.`
+    });
+  }
+  if (typeof settingValue !== "string") {
+    throw new import_provider3.LoadSettingError({
+      message: `${description} setting must be a string. The value of the ${environmentVariableName} environment variable is not a string.`
+    });
+  }
+  return settingValue;
+}
+
+// src/load-optional-setting.ts
+function loadOptionalSetting({
+  settingValue,
+  environmentVariableName
+}) {
+  if (typeof settingValue === "string") {
+    return settingValue;
+  }
+  if (settingValue != null || typeof process === "undefined") {
+    return void 0;
+  }
+  settingValue = process.env[environmentVariableName];
+  if (settingValue == null || typeof settingValue !== "string") {
+    return void 0;
+  }
+  return settingValue;
+}
+
+// src/parse-json.ts
+var import_provider5 = __nccwpck_require__(6468);
+var import_secure_json_parse = __toESM(__nccwpck_require__(2084));
+
+// src/validate-types.ts
+var import_provider4 = __nccwpck_require__(6468);
+
+// src/validator.ts
+var validatorSymbol = Symbol.for("vercel.ai.validator");
+function validator(validate) {
+  return { [validatorSymbol]: true, validate };
+}
+function isValidator(value) {
+  return typeof value === "object" && value !== null && validatorSymbol in value && value[validatorSymbol] === true && "validate" in value;
+}
+function asValidator(value) {
+  return isValidator(value) ? value : zodValidator(value);
+}
+function zodValidator(zodSchema) {
+  return validator((value) => {
+    const result = zodSchema.safeParse(value);
+    return result.success ? { success: true, value: result.data } : { success: false, error: result.error };
+  });
+}
+
+// src/validate-types.ts
+function validateTypes({
+  value,
+  schema: inputSchema
+}) {
+  const result = safeValidateTypes({ value, schema: inputSchema });
+  if (!result.success) {
+    throw import_provider4.TypeValidationError.wrap({ value, cause: result.error });
+  }
+  return result.value;
+}
+function safeValidateTypes({
+  value,
+  schema
+}) {
+  const validator2 = asValidator(schema);
+  try {
+    if (validator2.validate == null) {
+      return { success: true, value };
+    }
+    const result = validator2.validate(value);
+    if (result.success) {
+      return result;
+    }
+    return {
+      success: false,
+      error: import_provider4.TypeValidationError.wrap({ value, cause: result.error })
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: import_provider4.TypeValidationError.wrap({ value, cause: error })
+    };
+  }
+}
+
+// src/parse-json.ts
+function parseJSON({
+  text,
+  schema
+}) {
+  try {
+    const value = import_secure_json_parse.default.parse(text);
+    if (schema == null) {
+      return value;
+    }
+    return validateTypes({ value, schema });
+  } catch (error) {
+    if (import_provider5.JSONParseError.isJSONParseError(error) || import_provider5.TypeValidationError.isTypeValidationError(error)) {
+      throw error;
+    }
+    throw new import_provider5.JSONParseError({ text, cause: error });
+  }
+}
+function safeParseJSON({
+  text,
+  schema
+}) {
+  try {
+    const value = import_secure_json_parse.default.parse(text);
+    if (schema == null) {
+      return {
+        success: true,
+        value
+      };
+    }
+    return safeValidateTypes({ value, schema });
+  } catch (error) {
+    return {
+      success: false,
+      error: import_provider5.JSONParseError.isJSONParseError(error) ? error : new import_provider5.JSONParseError({ text, cause: error })
+    };
+  }
+}
+function isParsableJson(input) {
+  try {
+    import_secure_json_parse.default.parse(input);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+var isParseableJson = isParsableJson;
+
+// src/post-to-api.ts
+var import_provider6 = __nccwpck_require__(6468);
+
+// src/remove-undefined-entries.ts
+function removeUndefinedEntries(record) {
+  return Object.fromEntries(
+    Object.entries(record).filter(([_key, value]) => value != null)
+  );
+}
+
+// src/post-to-api.ts
+var getOriginalFetch = () => globalThis.fetch;
+var postJsonToApi = async ({
+  url,
+  headers,
+  body,
+  failedResponseHandler,
+  successfulResponseHandler,
+  abortSignal,
+  fetch
+}) => postToApi({
+  url,
+  headers: {
+    "Content-Type": "application/json",
+    ...headers
+  },
+  body: {
+    content: JSON.stringify(body),
+    values: body
+  },
+  failedResponseHandler,
+  successfulResponseHandler,
+  abortSignal,
+  fetch
+});
+var postToApi = async ({
+  url,
+  headers = {},
+  body,
+  successfulResponseHandler,
+  failedResponseHandler,
+  abortSignal,
+  fetch = getOriginalFetch()
+}) => {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: removeUndefinedEntries(headers),
+      body: body.content,
+      signal: abortSignal
+    });
+    const responseHeaders = extractResponseHeaders(response);
+    if (!response.ok) {
+      let errorInformation;
+      try {
+        errorInformation = await failedResponseHandler({
+          response,
+          url,
+          requestBodyValues: body.values
+        });
+      } catch (error) {
+        if (isAbortError(error) || import_provider6.APICallError.isAPICallError(error)) {
+          throw error;
+        }
+        throw new import_provider6.APICallError({
+          message: "Failed to process error response",
+          cause: error,
+          statusCode: response.status,
+          url,
+          responseHeaders,
+          requestBodyValues: body.values
+        });
+      }
+      throw errorInformation.value;
+    }
+    try {
+      return await successfulResponseHandler({
+        response,
+        url,
+        requestBodyValues: body.values
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        if (isAbortError(error) || import_provider6.APICallError.isAPICallError(error)) {
+          throw error;
+        }
+      }
+      throw new import_provider6.APICallError({
+        message: "Failed to process successful response",
+        cause: error,
+        statusCode: response.status,
+        url,
+        responseHeaders,
+        requestBodyValues: body.values
+      });
+    }
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    if (error instanceof TypeError && error.message === "fetch failed") {
+      const cause = error.cause;
+      if (cause != null) {
+        throw new import_provider6.APICallError({
+          message: `Cannot connect to API: ${cause.message}`,
+          cause,
+          url,
+          requestBodyValues: body.values,
+          isRetryable: true
+          // retry when network error
+        });
+      }
+    }
+    throw error;
+  }
+};
+
+// src/response-handler.ts
+var import_provider7 = __nccwpck_require__(6468);
+var import_stream = __nccwpck_require__(2343);
+var createJsonErrorResponseHandler = ({
+  errorSchema,
+  errorToMessage,
+  isRetryable
+}) => async ({ response, url, requestBodyValues }) => {
+  const responseBody = await response.text();
+  const responseHeaders = extractResponseHeaders(response);
+  if (responseBody.trim() === "") {
+    return {
+      responseHeaders,
+      value: new import_provider7.APICallError({
+        message: response.statusText,
+        url,
+        requestBodyValues,
+        statusCode: response.status,
+        responseHeaders,
+        responseBody,
+        isRetryable: isRetryable == null ? void 0 : isRetryable(response)
+      })
+    };
+  }
+  try {
+    const parsedError = parseJSON({
+      text: responseBody,
+      schema: errorSchema
+    });
+    return {
+      responseHeaders,
+      value: new import_provider7.APICallError({
+        message: errorToMessage(parsedError),
+        url,
+        requestBodyValues,
+        statusCode: response.status,
+        responseHeaders,
+        responseBody,
+        data: parsedError,
+        isRetryable: isRetryable == null ? void 0 : isRetryable(response, parsedError)
+      })
+    };
+  } catch (parseError) {
+    return {
+      responseHeaders,
+      value: new import_provider7.APICallError({
+        message: response.statusText,
+        url,
+        requestBodyValues,
+        statusCode: response.status,
+        responseHeaders,
+        responseBody,
+        isRetryable: isRetryable == null ? void 0 : isRetryable(response)
+      })
+    };
+  }
+};
+var createEventSourceResponseHandler = (chunkSchema) => async ({ response }) => {
+  const responseHeaders = extractResponseHeaders(response);
+  if (response.body == null) {
+    throw new import_provider7.EmptyResponseBodyError({});
+  }
+  return {
+    responseHeaders,
+    value: response.body.pipeThrough(new TextDecoderStream()).pipeThrough(new import_stream.EventSourceParserStream()).pipeThrough(
+      new TransformStream({
+        transform({ data }, controller) {
+          if (data === "[DONE]") {
+            return;
+          }
+          controller.enqueue(
+            safeParseJSON({
+              text: data,
+              schema: chunkSchema
+            })
+          );
+        }
+      })
+    )
+  };
+};
+var createJsonStreamResponseHandler = (chunkSchema) => async ({ response }) => {
+  const responseHeaders = extractResponseHeaders(response);
+  if (response.body == null) {
+    throw new import_provider7.EmptyResponseBodyError({});
+  }
+  let buffer = "";
+  return {
+    responseHeaders,
+    value: response.body.pipeThrough(new TextDecoderStream()).pipeThrough(
+      new TransformStream({
+        transform(chunkText, controller) {
+          if (chunkText.endsWith("\n")) {
+            controller.enqueue(
+              safeParseJSON({
+                text: buffer + chunkText,
+                schema: chunkSchema
+              })
+            );
+            buffer = "";
+          } else {
+            buffer += chunkText;
+          }
+        }
+      })
+    )
+  };
+};
+var createJsonResponseHandler = (responseSchema) => async ({ response, url, requestBodyValues }) => {
+  const responseBody = await response.text();
+  const parsedResult = safeParseJSON({
+    text: responseBody,
+    schema: responseSchema
+  });
+  const responseHeaders = extractResponseHeaders(response);
+  if (!parsedResult.success) {
+    throw new import_provider7.APICallError({
+      message: "Invalid JSON response",
+      cause: parsedResult.error,
+      statusCode: response.status,
+      responseHeaders,
+      responseBody,
+      url,
+      requestBodyValues
+    });
+  }
+  return {
+    responseHeaders,
+    value: parsedResult.value
+  };
+};
+
+// src/uint8-utils.ts
+var { btoa, atob } = globalThis;
+function convertBase64ToUint8Array(base64String) {
+  const base64Url = base64String.replace(/-/g, "+").replace(/_/g, "/");
+  const latin1string = atob(base64Url);
+  return Uint8Array.from(latin1string, (byte) => byte.codePointAt(0));
+}
+function convertUint8ArrayToBase64(array) {
+  let latin1string = "";
+  for (let i = 0; i < array.length; i++) {
+    latin1string += String.fromCodePoint(array[i]);
+  }
+  return btoa(latin1string);
+}
+
+// src/without-trailing-slash.ts
+function withoutTrailingSlash(url) {
+  return url == null ? void 0 : url.replace(/\/$/, "");
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (0);
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 6468:
+/***/ ((module) => {
+
+"use strict";
+
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name14 in all)
+    __defProp(target, name14, { get: all[name14], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/index.ts
+var src_exports = {};
+__export(src_exports, {
+  AISDKError: () => AISDKError,
+  APICallError: () => APICallError,
+  EmptyResponseBodyError: () => EmptyResponseBodyError,
+  InvalidArgumentError: () => InvalidArgumentError,
+  InvalidPromptError: () => InvalidPromptError,
+  InvalidResponseDataError: () => InvalidResponseDataError,
+  JSONParseError: () => JSONParseError,
+  LoadAPIKeyError: () => LoadAPIKeyError,
+  LoadSettingError: () => LoadSettingError,
+  NoContentGeneratedError: () => NoContentGeneratedError,
+  NoSuchModelError: () => NoSuchModelError,
+  TooManyEmbeddingValuesForCallError: () => TooManyEmbeddingValuesForCallError,
+  TypeValidationError: () => TypeValidationError,
+  UnsupportedFunctionalityError: () => UnsupportedFunctionalityError,
+  getErrorMessage: () => getErrorMessage,
+  isJSONArray: () => isJSONArray,
+  isJSONObject: () => isJSONObject,
+  isJSONValue: () => isJSONValue
+});
+module.exports = __toCommonJS(src_exports);
+
+// src/errors/ai-sdk-error.ts
+var marker = "vercel.ai.error";
+var symbol = Symbol.for(marker);
+var _a;
+var _AISDKError = class _AISDKError extends Error {
+  /**
+   * Creates an AI SDK Error.
+   *
+   * @param {Object} params - The parameters for creating the error.
+   * @param {string} params.name - The name of the error.
+   * @param {string} params.message - The error message.
+   * @param {unknown} [params.cause] - The underlying cause of the error.
+   */
+  constructor({
+    name: name14,
+    message,
+    cause
+  }) {
+    super(message);
+    this[_a] = true;
+    this.name = name14;
+    this.cause = cause;
+  }
+  /**
+   * Checks if the given error is an AI SDK Error.
+   * @param {unknown} error - The error to check.
+   * @returns {boolean} True if the error is an AI SDK Error, false otherwise.
+   */
+  static isInstance(error) {
+    return _AISDKError.hasMarker(error, marker);
+  }
+  static hasMarker(error, marker15) {
+    const markerSymbol = Symbol.for(marker15);
+    return error != null && typeof error === "object" && markerSymbol in error && typeof error[markerSymbol] === "boolean" && error[markerSymbol] === true;
+  }
+  /**
+   * Returns a JSON representation of the error.
+   * @returns {Object} An object containing the error's name, message, and cause.
+   *
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message
+    };
+  }
+};
+_a = symbol;
+var AISDKError = _AISDKError;
+
+// src/errors/api-call-error.ts
+var name = "AI_APICallError";
+var marker2 = `vercel.ai.error.${name}`;
+var symbol2 = Symbol.for(marker2);
+var _a2;
+var APICallError = class extends AISDKError {
+  constructor({
+    message,
+    url,
+    requestBodyValues,
+    statusCode,
+    responseHeaders,
+    responseBody,
+    cause,
+    isRetryable = statusCode != null && (statusCode === 408 || // request timeout
+    statusCode === 409 || // conflict
+    statusCode === 429 || // too many requests
+    statusCode >= 500),
+    // server error
+    data
+  }) {
+    super({ name, message, cause });
+    this[_a2] = true;
+    this.url = url;
+    this.requestBodyValues = requestBodyValues;
+    this.statusCode = statusCode;
+    this.responseHeaders = responseHeaders;
+    this.responseBody = responseBody;
+    this.isRetryable = isRetryable;
+    this.data = data;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker2);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isAPICallError(error) {
+    return error instanceof Error && error.name === name && typeof error.url === "string" && typeof error.requestBodyValues === "object" && (error.statusCode == null || typeof error.statusCode === "number") && (error.responseHeaders == null || typeof error.responseHeaders === "object") && (error.responseBody == null || typeof error.responseBody === "string") && (error.cause == null || typeof error.cause === "object") && typeof error.isRetryable === "boolean" && (error.data == null || typeof error.data === "object");
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      url: this.url,
+      requestBodyValues: this.requestBodyValues,
+      statusCode: this.statusCode,
+      responseHeaders: this.responseHeaders,
+      responseBody: this.responseBody,
+      cause: this.cause,
+      isRetryable: this.isRetryable,
+      data: this.data
+    };
+  }
+};
+_a2 = symbol2;
+
+// src/errors/empty-response-body-error.ts
+var name2 = "AI_EmptyResponseBodyError";
+var marker3 = `vercel.ai.error.${name2}`;
+var symbol3 = Symbol.for(marker3);
+var _a3;
+var EmptyResponseBodyError = class extends AISDKError {
+  // used in isInstance
+  constructor({ message = "Empty response body" } = {}) {
+    super({ name: name2, message });
+    this[_a3] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker3);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isEmptyResponseBodyError(error) {
+    return error instanceof Error && error.name === name2;
+  }
+};
+_a3 = symbol3;
+
+// src/errors/get-error-message.ts
+function getErrorMessage(error) {
+  if (error == null) {
+    return "unknown error";
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return JSON.stringify(error);
+}
+
+// src/errors/invalid-argument-error.ts
+var name3 = "AI_InvalidArgumentError";
+var marker4 = `vercel.ai.error.${name3}`;
+var symbol4 = Symbol.for(marker4);
+var _a4;
+var InvalidArgumentError = class extends AISDKError {
+  constructor({
+    message,
+    cause,
+    argument
+  }) {
+    super({ name: name3, message, cause });
+    this[_a4] = true;
+    this.argument = argument;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker4);
+  }
+};
+_a4 = symbol4;
+
+// src/errors/invalid-prompt-error.ts
+var name4 = "AI_InvalidPromptError";
+var marker5 = `vercel.ai.error.${name4}`;
+var symbol5 = Symbol.for(marker5);
+var _a5;
+var InvalidPromptError = class extends AISDKError {
+  constructor({
+    prompt: prompt2,
+    message,
+    cause
+  }) {
+    super({ name: name4, message: `Invalid prompt: ${message}`, cause });
+    this[_a5] = true;
+    this.prompt = prompt2;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker5);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isInvalidPromptError(error) {
+    return error instanceof Error && error.name === name4 && prompt != null;
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      prompt: this.prompt
+    };
+  }
+};
+_a5 = symbol5;
+
+// src/errors/invalid-response-data-error.ts
+var name5 = "AI_InvalidResponseDataError";
+var marker6 = `vercel.ai.error.${name5}`;
+var symbol6 = Symbol.for(marker6);
+var _a6;
+var InvalidResponseDataError = class extends AISDKError {
+  constructor({
+    data,
+    message = `Invalid response data: ${JSON.stringify(data)}.`
+  }) {
+    super({ name: name5, message });
+    this[_a6] = true;
+    this.data = data;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker6);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isInvalidResponseDataError(error) {
+    return error instanceof Error && error.name === name5 && error.data != null;
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      data: this.data
+    };
+  }
+};
+_a6 = symbol6;
+
+// src/errors/json-parse-error.ts
+var name6 = "AI_JSONParseError";
+var marker7 = `vercel.ai.error.${name6}`;
+var symbol7 = Symbol.for(marker7);
+var _a7;
+var JSONParseError = class extends AISDKError {
+  constructor({ text, cause }) {
+    super({
+      name: name6,
+      message: `JSON parsing failed: Text: ${text}.
+Error message: ${getErrorMessage(cause)}`,
+      cause
+    });
+    this[_a7] = true;
+    this.text = text;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker7);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isJSONParseError(error) {
+    return error instanceof Error && error.name === name6 && "text" in error && typeof error.text === "string";
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      cause: this.cause,
+      stack: this.stack,
+      valueText: this.text
+    };
+  }
+};
+_a7 = symbol7;
+
+// src/errors/load-api-key-error.ts
+var name7 = "AI_LoadAPIKeyError";
+var marker8 = `vercel.ai.error.${name7}`;
+var symbol8 = Symbol.for(marker8);
+var _a8;
+var LoadAPIKeyError = class extends AISDKError {
+  // used in isInstance
+  constructor({ message }) {
+    super({ name: name7, message });
+    this[_a8] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker8);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isLoadAPIKeyError(error) {
+    return error instanceof Error && error.name === name7;
+  }
+};
+_a8 = symbol8;
+
+// src/errors/load-setting-error.ts
+var name8 = "AI_LoadSettingError";
+var marker9 = `vercel.ai.error.${name8}`;
+var symbol9 = Symbol.for(marker9);
+var _a9;
+var LoadSettingError = class extends AISDKError {
+  // used in isInstance
+  constructor({ message }) {
+    super({ name: name8, message });
+    this[_a9] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker9);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isLoadSettingError(error) {
+    return error instanceof Error && error.name === name8;
+  }
+};
+_a9 = symbol9;
+
+// src/errors/no-content-generated-error.ts
+var name9 = "AI_NoContentGeneratedError";
+var marker10 = `vercel.ai.error.${name9}`;
+var symbol10 = Symbol.for(marker10);
+var _a10;
+var NoContentGeneratedError = class extends AISDKError {
+  // used in isInstance
+  constructor({
+    message = "No content generated."
+  } = {}) {
+    super({ name: name9, message });
+    this[_a10] = true;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker10);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isNoContentGeneratedError(error) {
+    return error instanceof Error && error.name === name9;
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      cause: this.cause,
+      message: this.message,
+      stack: this.stack
+    };
+  }
+};
+_a10 = symbol10;
+
+// src/errors/no-such-model-error.ts
+var name10 = "AI_NoSuchModelError";
+var marker11 = `vercel.ai.error.${name10}`;
+var symbol11 = Symbol.for(marker11);
+var _a11;
+var NoSuchModelError = class extends AISDKError {
+  constructor({
+    errorName = name10,
+    modelId,
+    modelType,
+    message = `No such ${modelType}: ${modelId}`
+  }) {
+    super({ name: errorName, message });
+    this[_a11] = true;
+    this.modelId = modelId;
+    this.modelType = modelType;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker11);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isNoSuchModelError(error) {
+    return error instanceof Error && error.name === name10 && typeof error.modelId === "string" && typeof error.modelType === "string";
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      modelId: this.modelId,
+      modelType: this.modelType
+    };
+  }
+};
+_a11 = symbol11;
+
+// src/errors/too-many-embedding-values-for-call-error.ts
+var name11 = "AI_TooManyEmbeddingValuesForCallError";
+var marker12 = `vercel.ai.error.${name11}`;
+var symbol12 = Symbol.for(marker12);
+var _a12;
+var TooManyEmbeddingValuesForCallError = class extends AISDKError {
+  constructor(options) {
+    super({
+      name: name11,
+      message: `Too many values for a single embedding call. The ${options.provider} model "${options.modelId}" can only embed up to ${options.maxEmbeddingsPerCall} values per call, but ${options.values.length} values were provided.`
+    });
+    this[_a12] = true;
+    this.provider = options.provider;
+    this.modelId = options.modelId;
+    this.maxEmbeddingsPerCall = options.maxEmbeddingsPerCall;
+    this.values = options.values;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker12);
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isTooManyEmbeddingValuesForCallError(error) {
+    return error instanceof Error && error.name === name11 && "provider" in error && typeof error.provider === "string" && "modelId" in error && typeof error.modelId === "string" && "maxEmbeddingsPerCall" in error && typeof error.maxEmbeddingsPerCall === "number" && "values" in error && Array.isArray(error.values);
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      provider: this.provider,
+      modelId: this.modelId,
+      maxEmbeddingsPerCall: this.maxEmbeddingsPerCall,
+      values: this.values
+    };
+  }
+};
+_a12 = symbol12;
+
+// src/errors/type-validation-error.ts
+var name12 = "AI_TypeValidationError";
+var marker13 = `vercel.ai.error.${name12}`;
+var symbol13 = Symbol.for(marker13);
+var _a13;
+var _TypeValidationError = class _TypeValidationError extends AISDKError {
+  constructor({ value, cause }) {
+    super({
+      name: name12,
+      message: `Type validation failed: Value: ${JSON.stringify(value)}.
+Error message: ${getErrorMessage(cause)}`,
+      cause
+    });
+    this[_a13] = true;
+    this.value = value;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker13);
+  }
+  /**
+   * Wraps an error into a TypeValidationError.
+   * If the cause is already a TypeValidationError with the same value, it returns the cause.
+   * Otherwise, it creates a new TypeValidationError.
+   *
+   * @param {Object} params - The parameters for wrapping the error.
+   * @param {unknown} params.value - The value that failed validation.
+   * @param {unknown} params.cause - The original error or cause of the validation failure.
+   * @returns {TypeValidationError} A TypeValidationError instance.
+   */
+  static wrap({
+    value,
+    cause
+  }) {
+    return _TypeValidationError.isInstance(cause) && cause.value === value ? cause : new _TypeValidationError({ value, cause });
+  }
+  /**
+   * @deprecated use `isInstance` instead
+   */
+  static isTypeValidationError(error) {
+    return error instanceof Error && error.name === name12;
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      cause: this.cause,
+      stack: this.stack,
+      value: this.value
+    };
+  }
+};
+_a13 = symbol13;
+var TypeValidationError = _TypeValidationError;
+
+// src/errors/unsupported-functionality-error.ts
+var name13 = "AI_UnsupportedFunctionalityError";
+var marker14 = `vercel.ai.error.${name13}`;
+var symbol14 = Symbol.for(marker14);
+var _a14;
+var UnsupportedFunctionalityError = class extends AISDKError {
+  constructor({ functionality }) {
+    super({
+      name: name13,
+      message: `'${functionality}' functionality not supported.`
+    });
+    this[_a14] = true;
+    this.functionality = functionality;
+  }
+  static isInstance(error) {
+    return AISDKError.hasMarker(error, marker14);
+  }
+  /**
+   * @deprecated Use isInstance instead.
+   */
+  static isUnsupportedFunctionalityError(error) {
+    return error instanceof Error && error.name === name13 && typeof error.functionality === "string";
+  }
+  /**
+   * @deprecated Do not use this method. It will be removed in the next major version.
+   */
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      stack: this.stack,
+      functionality: this.functionality
+    };
+  }
+};
+_a14 = symbol14;
+
+// src/json-value/is-json.ts
+function isJSONValue(value) {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJSONValue);
+  }
+  if (typeof value === "object") {
+    return Object.entries(value).every(
+      ([key, val]) => typeof key === "string" && isJSONValue(val)
+    );
+  }
+  return false;
+}
+function isJSONArray(value) {
+  return Array.isArray(value) && value.every(isJSONValue);
+}
+function isJSONObject(value) {
+  return value != null && typeof value === "object" && Object.entries(value).every(
+    ([key, val]) => typeof key === "string" && isJSONValue(val)
+  );
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (0);
 //# sourceMappingURL=index.js.map
@@ -43029,6 +45530,9 @@ const quotelessJson = (obj) => {
 };
 exports.quotelessJson = quotelessJson;
 class ZodError extends Error {
+    get errors() {
+        return this.issues;
+    }
     constructor(issues) {
         super();
         this.issues = [];
@@ -43048,9 +45552,6 @@ class ZodError extends Error {
         }
         this.name = "ZodError";
         this.issues = issues;
-    }
-    get errors() {
-        return this.issues;
     }
     format(_mapper) {
         const mapper = _mapper ||
@@ -43174,7 +45675,11 @@ exports.getErrorMap = getErrorMap;
 
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
 }) : (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
@@ -43204,7 +45709,7 @@ var errorUtil;
 (function (errorUtil) {
     errorUtil.errToObj = (message) => typeof message === "string" ? { message } : message || {};
     errorUtil.toString = (message) => typeof message === "string" ? message : message === null || message === void 0 ? void 0 : message.message;
-})(errorUtil = exports.errorUtil || (exports.errorUtil = {}));
+})(errorUtil || (exports.errorUtil = errorUtil = {}));
 
 
 /***/ }),
@@ -43258,9 +45763,9 @@ function addIssueToContext(ctx, issueData) {
         data: ctx.data,
         path: ctx.path,
         errorMaps: [
-            ctx.common.contextualErrorMap,
-            ctx.schemaErrorMap,
-            overrideMap,
+            ctx.common.contextualErrorMap, // contextual error map is first priority
+            ctx.schemaErrorMap, // then schema-bound map if available
+            overrideMap, // then global override map
             overrideMap === en_1.default ? undefined : en_1.default, // then global default map
         ].filter((x) => !!x),
     });
@@ -43421,7 +45926,7 @@ var util;
         }
         return value;
     };
-})(util = exports.util || (exports.util = {}));
+})(util || (exports.util = util = {}));
 var objectUtil;
 (function (objectUtil) {
     objectUtil.mergeShapes = (first, second) => {
@@ -43430,7 +45935,7 @@ var objectUtil;
             ...second, // second overwrites first
         };
     };
-})(objectUtil = exports.objectUtil || (exports.objectUtil = {}));
+})(objectUtil || (exports.objectUtil = objectUtil = {}));
 exports.ZodParsedType = util.arrayToEnum([
     "string",
     "nan",
@@ -43509,7 +46014,11 @@ exports.getParsedType = getParsedType;
 
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
 }) : (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
@@ -43766,35 +46275,6 @@ function processCreateParams(params) {
     return { errorMap: customMap, description };
 }
 class ZodType {
-    constructor(def) {
-        /** Alias of safeParseAsync */
-        this.spa = this.safeParseAsync;
-        this._def = def;
-        this.parse = this.parse.bind(this);
-        this.safeParse = this.safeParse.bind(this);
-        this.parseAsync = this.parseAsync.bind(this);
-        this.safeParseAsync = this.safeParseAsync.bind(this);
-        this.spa = this.spa.bind(this);
-        this.refine = this.refine.bind(this);
-        this.refinement = this.refinement.bind(this);
-        this.superRefine = this.superRefine.bind(this);
-        this.optional = this.optional.bind(this);
-        this.nullable = this.nullable.bind(this);
-        this.nullish = this.nullish.bind(this);
-        this.array = this.array.bind(this);
-        this.promise = this.promise.bind(this);
-        this.or = this.or.bind(this);
-        this.and = this.and.bind(this);
-        this.transform = this.transform.bind(this);
-        this.brand = this.brand.bind(this);
-        this.default = this.default.bind(this);
-        this.catch = this.catch.bind(this);
-        this.describe = this.describe.bind(this);
-        this.pipe = this.pipe.bind(this);
-        this.readonly = this.readonly.bind(this);
-        this.isNullable = this.isNullable.bind(this);
-        this.isOptional = this.isOptional.bind(this);
-    }
     get description() {
         return this._def.description;
     }
@@ -43857,6 +46337,48 @@ class ZodType {
         };
         const result = this._parseSync({ data, path: ctx.path, parent: ctx });
         return handleResult(ctx, result);
+    }
+    "~validate"(data) {
+        var _a, _b;
+        const ctx = {
+            common: {
+                issues: [],
+                async: !!this["~standard"].async,
+            },
+            path: [],
+            schemaErrorMap: this._def.errorMap,
+            parent: null,
+            data,
+            parsedType: (0, util_1.getParsedType)(data),
+        };
+        if (!this["~standard"].async) {
+            try {
+                const result = this._parseSync({ data, path: [], parent: ctx });
+                return (0, parseUtil_1.isValid)(result)
+                    ? {
+                        value: result.value,
+                    }
+                    : {
+                        issues: ctx.common.issues,
+                    };
+            }
+            catch (err) {
+                if ((_b = (_a = err === null || err === void 0 ? void 0 : err.message) === null || _a === void 0 ? void 0 : _a.toLowerCase()) === null || _b === void 0 ? void 0 : _b.includes("encountered")) {
+                    this["~standard"].async = true;
+                }
+                ctx.common = {
+                    issues: [],
+                    async: true,
+                };
+            }
+        }
+        return this._parseAsync({ data, path: [], parent: ctx }).then((result) => (0, parseUtil_1.isValid)(result)
+            ? {
+                value: result.value,
+            }
+            : {
+                issues: ctx.common.issues,
+            });
     }
     async parseAsync(data, params) {
         const result = await this.safeParseAsync(data, params);
@@ -43944,6 +46466,40 @@ class ZodType {
     superRefine(refinement) {
         return this._refinement(refinement);
     }
+    constructor(def) {
+        /** Alias of safeParseAsync */
+        this.spa = this.safeParseAsync;
+        this._def = def;
+        this.parse = this.parse.bind(this);
+        this.safeParse = this.safeParse.bind(this);
+        this.parseAsync = this.parseAsync.bind(this);
+        this.safeParseAsync = this.safeParseAsync.bind(this);
+        this.spa = this.spa.bind(this);
+        this.refine = this.refine.bind(this);
+        this.refinement = this.refinement.bind(this);
+        this.superRefine = this.superRefine.bind(this);
+        this.optional = this.optional.bind(this);
+        this.nullable = this.nullable.bind(this);
+        this.nullish = this.nullish.bind(this);
+        this.array = this.array.bind(this);
+        this.promise = this.promise.bind(this);
+        this.or = this.or.bind(this);
+        this.and = this.and.bind(this);
+        this.transform = this.transform.bind(this);
+        this.brand = this.brand.bind(this);
+        this.default = this.default.bind(this);
+        this.catch = this.catch.bind(this);
+        this.describe = this.describe.bind(this);
+        this.pipe = this.pipe.bind(this);
+        this.readonly = this.readonly.bind(this);
+        this.isNullable = this.isNullable.bind(this);
+        this.isOptional = this.isOptional.bind(this);
+        this["~standard"] = {
+            version: 1,
+            vendor: "zod",
+            validate: (data) => this["~validate"](data),
+        };
+    }
     optional() {
         return ZodOptional.create(this, this._def);
     }
@@ -43954,7 +46510,7 @@ class ZodType {
         return this.nullable().optional();
     }
     array() {
-        return ZodArray.create(this, this._def);
+        return ZodArray.create(this);
     }
     promise() {
         return ZodPromise.create(this, this._def);
@@ -44023,11 +46579,12 @@ exports.Schema = ZodType;
 exports.ZodSchema = ZodType;
 const cuidRegex = /^c[^\s-]{8,}$/i;
 const cuid2Regex = /^[0-9a-z]+$/;
-const ulidRegex = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+const ulidRegex = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
 // const uuidRegex =
 //   /^([a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[a-f0-9]{4}-[a-f0-9]{12}|00000000-0000-0000-0000-000000000000)$/i;
 const uuidRegex = /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/i;
 const nanoidRegex = /^[a-z0-9_-]{21}$/i;
+const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]*$/;
 const durationRegex = /^[-+]?P(?!$)(?:(?:[-+]?\d+Y)|(?:[-+]?\d+[.,]\d+Y$))?(?:(?:[-+]?\d+M)|(?:[-+]?\d+[.,]\d+M$))?(?:(?:[-+]?\d+W)|(?:[-+]?\d+[.,]\d+W$))?(?:(?:[-+]?\d+D)|(?:[-+]?\d+[.,]\d+D$))?(?:T(?=[\d+-])(?:(?:[-+]?\d+H)|(?:[-+]?\d+[.,]\d+H$))?(?:(?:[-+]?\d+M)|(?:[-+]?\d+[.,]\d+M$))?(?:[-+]?\d+(?:[.,]\d+)?S)?)??$/;
 // from https://stackoverflow.com/a/46181/1550155
 // old version: too slow, didn't support unicode
@@ -44049,9 +46606,15 @@ const _emojiRegex = `^(\\p{Extended_Pictographic}|\\p{Emoji_Component})+$`;
 let emojiRegex;
 // faster, simpler, safer
 const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
-const ipv6Regex = /^(([a-f0-9]{1,4}:){7}|::([a-f0-9]{1,4}:){0,6}|([a-f0-9]{1,4}:){1}:([a-f0-9]{1,4}:){0,5}|([a-f0-9]{1,4}:){2}:([a-f0-9]{1,4}:){0,4}|([a-f0-9]{1,4}:){3}:([a-f0-9]{1,4}:){0,3}|([a-f0-9]{1,4}:){4}:([a-f0-9]{1,4}:){0,2}|([a-f0-9]{1,4}:){5}:([a-f0-9]{1,4}:){0,1})([a-f0-9]{1,4}|(((25[0-5])|(2[0-4][0-9])|(1[0-9]{2})|([0-9]{1,2}))\.){3}((25[0-5])|(2[0-4][0-9])|(1[0-9]{2})|([0-9]{1,2})))$/;
+const ipv4CidrRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/(3[0-2]|[12]?[0-9])$/;
+// const ipv6Regex =
+// /^(([a-f0-9]{1,4}:){7}|::([a-f0-9]{1,4}:){0,6}|([a-f0-9]{1,4}:){1}:([a-f0-9]{1,4}:){0,5}|([a-f0-9]{1,4}:){2}:([a-f0-9]{1,4}:){0,4}|([a-f0-9]{1,4}:){3}:([a-f0-9]{1,4}:){0,3}|([a-f0-9]{1,4}:){4}:([a-f0-9]{1,4}:){0,2}|([a-f0-9]{1,4}:){5}:([a-f0-9]{1,4}:){0,1})([a-f0-9]{1,4}|(((25[0-5])|(2[0-4][0-9])|(1[0-9]{2})|([0-9]{1,2}))\.){3}((25[0-5])|(2[0-4][0-9])|(1[0-9]{2})|([0-9]{1,2})))$/;
+const ipv6Regex = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+const ipv6CidrRegex = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))\/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$/;
 // https://stackoverflow.com/questions/7860392/determine-if-string-is-in-base64-using-javascript
 const base64Regex = /^([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/;
+// https://base64.guru/standards/base64url
+const base64urlRegex = /^([0-9a-zA-Z-_]{4})*(([0-9a-zA-Z-_]{2}(==)?)|([0-9a-zA-Z-_]{3}(=)?))?$/;
 // simple
 // const dateRegexSource = `\\d{4}-\\d{2}-\\d{2}`;
 // no leap year validation
@@ -44089,6 +46652,38 @@ function isValidIP(ip, version) {
         return true;
     }
     if ((version === "v6" || !version) && ipv6Regex.test(ip)) {
+        return true;
+    }
+    return false;
+}
+function isValidJWT(jwt, alg) {
+    if (!jwtRegex.test(jwt))
+        return false;
+    try {
+        const [header] = jwt.split(".");
+        // Convert base64url to base64
+        const base64 = header
+            .replace(/-/g, "+")
+            .replace(/_/g, "/")
+            .padEnd(header.length + ((4 - (header.length % 4)) % 4), "=");
+        const decoded = JSON.parse(atob(base64));
+        if (typeof decoded !== "object" || decoded === null)
+            return false;
+        if (!decoded.typ || !decoded.alg)
+            return false;
+        if (alg && decoded.alg !== alg)
+            return false;
+        return true;
+    }
+    catch (_a) {
+        return false;
+    }
+}
+function isValidCidr(ip, version) {
+    if ((version === "v4" || !version) && ipv4CidrRegex.test(ip)) {
+        return true;
+    }
+    if ((version === "v6" || !version) && ipv6CidrRegex.test(ip)) {
         return true;
     }
     return false;
@@ -44374,11 +46969,44 @@ class ZodString extends ZodType {
                     status.dirty();
                 }
             }
+            else if (check.kind === "jwt") {
+                if (!isValidJWT(input.data, check.alg)) {
+                    ctx = this._getOrReturnCtx(input, ctx);
+                    (0, parseUtil_1.addIssueToContext)(ctx, {
+                        validation: "jwt",
+                        code: ZodError_1.ZodIssueCode.invalid_string,
+                        message: check.message,
+                    });
+                    status.dirty();
+                }
+            }
+            else if (check.kind === "cidr") {
+                if (!isValidCidr(input.data, check.version)) {
+                    ctx = this._getOrReturnCtx(input, ctx);
+                    (0, parseUtil_1.addIssueToContext)(ctx, {
+                        validation: "cidr",
+                        code: ZodError_1.ZodIssueCode.invalid_string,
+                        message: check.message,
+                    });
+                    status.dirty();
+                }
+            }
             else if (check.kind === "base64") {
                 if (!base64Regex.test(input.data)) {
                     ctx = this._getOrReturnCtx(input, ctx);
                     (0, parseUtil_1.addIssueToContext)(ctx, {
                         validation: "base64",
+                        code: ZodError_1.ZodIssueCode.invalid_string,
+                        message: check.message,
+                    });
+                    status.dirty();
+                }
+            }
+            else if (check.kind === "base64url") {
+                if (!base64urlRegex.test(input.data)) {
+                    ctx = this._getOrReturnCtx(input, ctx);
+                    (0, parseUtil_1.addIssueToContext)(ctx, {
+                        validation: "base64url",
                         code: ZodError_1.ZodIssueCode.invalid_string,
                         message: check.message,
                     });
@@ -44431,8 +47059,21 @@ class ZodString extends ZodType {
     base64(message) {
         return this._addCheck({ kind: "base64", ...errorUtil_1.errorUtil.errToObj(message) });
     }
+    base64url(message) {
+        // base64url encoding is a modification of base64 that can safely be used in URLs and filenames
+        return this._addCheck({
+            kind: "base64url",
+            ...errorUtil_1.errorUtil.errToObj(message),
+        });
+    }
+    jwt(options) {
+        return this._addCheck({ kind: "jwt", ...errorUtil_1.errorUtil.errToObj(options) });
+    }
     ip(options) {
         return this._addCheck({ kind: "ip", ...errorUtil_1.errorUtil.errToObj(options) });
+    }
+    cidr(options) {
+        return this._addCheck({ kind: "cidr", ...errorUtil_1.errorUtil.errToObj(options) });
     }
     datetime(options) {
         var _a, _b;
@@ -44524,8 +47165,7 @@ class ZodString extends ZodType {
         });
     }
     /**
-     * @deprecated Use z.string().min(1) instead.
-     * @see {@link ZodString.min}
+     * Equivalent to `.min(1)`
      */
     nonempty(message) {
         return this.min(1, errorUtil_1.errorUtil.errToObj(message));
@@ -44587,8 +47227,15 @@ class ZodString extends ZodType {
     get isIP() {
         return !!this._def.checks.find((ch) => ch.kind === "ip");
     }
+    get isCIDR() {
+        return !!this._def.checks.find((ch) => ch.kind === "cidr");
+    }
     get isBase64() {
         return !!this._def.checks.find((ch) => ch.kind === "base64");
+    }
+    get isBase64url() {
+        // base64url encoding is a modification of base64 that can safely be used in URLs and filenames
+        return !!this._def.checks.find((ch) => ch.kind === "base64url");
     }
     get minLength() {
         let min = null;
@@ -44884,17 +47531,16 @@ class ZodBigInt extends ZodType {
     }
     _parse(input) {
         if (this._def.coerce) {
-            input.data = BigInt(input.data);
+            try {
+                input.data = BigInt(input.data);
+            }
+            catch (_a) {
+                return this._getInvalidInput(input);
+            }
         }
         const parsedType = this._getType(input);
         if (parsedType !== util_1.ZodParsedType.bigint) {
-            const ctx = this._getOrReturnCtx(input);
-            (0, parseUtil_1.addIssueToContext)(ctx, {
-                code: ZodError_1.ZodIssueCode.invalid_type,
-                expected: util_1.ZodParsedType.bigint,
-                received: ctx.parsedType,
-            });
-            return parseUtil_1.INVALID;
+            return this._getInvalidInput(input);
         }
         let ctx = undefined;
         const status = new parseUtil_1.ParseStatus();
@@ -44947,6 +47593,15 @@ class ZodBigInt extends ZodType {
             }
         }
         return { status: status.value, value: input.data };
+    }
+    _getInvalidInput(input) {
+        const ctx = this._getOrReturnCtx(input);
+        (0, parseUtil_1.addIssueToContext)(ctx, {
+            code: ZodError_1.ZodIssueCode.invalid_type,
+            expected: util_1.ZodParsedType.bigint,
+            received: ctx.parsedType,
+        });
+        return parseUtil_1.INVALID;
     }
     gte(value, message) {
         return this.setLimit("min", value, true, errorUtil_1.errorUtil.toString(message));
@@ -47260,7 +49915,7 @@ var ZodFirstPartyTypeKind;
     ZodFirstPartyTypeKind["ZodBranded"] = "ZodBranded";
     ZodFirstPartyTypeKind["ZodPipeline"] = "ZodPipeline";
     ZodFirstPartyTypeKind["ZodReadonly"] = "ZodReadonly";
-})(ZodFirstPartyTypeKind = exports.ZodFirstPartyTypeKind || (exports.ZodFirstPartyTypeKind = {}));
+})(ZodFirstPartyTypeKind || (exports.ZodFirstPartyTypeKind = ZodFirstPartyTypeKind = {}));
 // requires TS 4.4+
 class Class {
     constructor(..._) { }
@@ -49534,7 +52189,7 @@ exports.defaultOptions = {
     applyRegexFlags: false,
     emailStrategy: "format:email",
     base64Strategy: "contentEncoding:base64",
-    nameStrategy: "ref"
+    nameStrategy: "ref",
 };
 const getDefaultOptions = (options) => (typeof options === "string"
     ? {
@@ -49830,6 +52485,7 @@ const selectParser = (def, typeName, refs) => {
         case zod_1.ZodFirstPartyTypeKind.ZodSymbol:
             return undefined;
         default:
+            /* c8 ignore next */
             return ((_) => undefined)(typeName);
     }
 };
@@ -49875,7 +52531,8 @@ function parseArrayDef(def, refs) {
     const res = {
         type: "array",
     };
-    if (def.type?._def?.typeName !== zod_1.ZodFirstPartyTypeKind.ZodAny) {
+    if (def.type?._def &&
+        def.type?._def?.typeName !== zod_1.ZodFirstPartyTypeKind.ZodAny) {
         res.items = (0, parseDef_js_1.parseDef)(def.type._def, {
             ...refs,
             currentPath: [...refs.currentPath, "items"],
@@ -50113,7 +52770,7 @@ exports.parseEnumDef = void 0;
 function parseEnumDef(def) {
     return {
         type: "string",
-        enum: def.values,
+        enum: Array.from(def.values),
     };
 }
 exports.parseEnumDef = parseEnumDef;
@@ -50352,7 +53009,7 @@ function parseNullableDef(def, refs) {
             ...refs,
             currentPath: [...refs.currentPath],
         });
-        if (base && '$ref' in base)
+        if (base && "$ref" in base)
             return { allOf: [base], nullable: true };
         return base && { ...base, nullable: true };
     }
@@ -50437,7 +53094,8 @@ exports.parseNumberDef = parseNumberDef;
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.parseObjectDef = exports.parseObjectDefX = void 0;
+exports.parseObjectDef = void 0;
+const zod_1 = __nccwpck_require__(4809);
 const parseDef_js_1 = __nccwpck_require__(1607);
 function decideAdditionalProperties(def, refs) {
     if (refs.removeAdditionalStrategy === "strict") {
@@ -50457,66 +53115,23 @@ function decideAdditionalProperties(def, refs) {
             }) ?? true;
     }
 }
-;
-function parseObjectDefX(def, refs) {
-    Object.keys(def.shape()).reduce((schema, key) => {
-        let prop = def.shape()[key];
-        const isOptional = prop.isOptional();
-        if (!isOptional) {
-            prop = { ...prop._def.innerSchema };
-        }
-        const propSchema = (0, parseDef_js_1.parseDef)(prop._def, {
-            ...refs,
-            currentPath: [...refs.currentPath, "properties", key],
-            propertyPath: [...refs.currentPath, "properties", key],
-        });
-        if (propSchema !== undefined) {
-            schema.properties[key] = propSchema;
-            if (!isOptional) {
-                if (!schema.required) {
-                    schema.required = [];
-                }
-                schema.required.push(key);
-            }
-        }
-        return schema;
-    }, {
-        type: "object",
-        properties: {},
-        additionalProperties: decideAdditionalProperties(def, refs),
-    });
-    const result = {
-        type: "object",
-        ...Object.entries(def.shape()).reduce((acc, [propName, propDef]) => {
-            if (propDef === undefined || propDef._def === undefined)
-                return acc;
-            const parsedDef = (0, parseDef_js_1.parseDef)(propDef._def, {
-                ...refs,
-                currentPath: [...refs.currentPath, "properties", propName],
-                propertyPath: [...refs.currentPath, "properties", propName],
-            });
-            if (parsedDef === undefined)
-                return acc;
-            return {
-                properties: { ...acc.properties, [propName]: parsedDef },
-                required: propDef.isOptional()
-                    ? acc.required
-                    : [...acc.required, propName],
-            };
-        }, { properties: {}, required: [] }),
-        additionalProperties: decideAdditionalProperties(def, refs),
-    };
-    if (!result.required.length)
-        delete result.required;
-    return result;
-}
-exports.parseObjectDefX = parseObjectDefX;
 function parseObjectDef(def, refs) {
+    const forceOptionalIntoNullable = refs.target === "openAi";
     const result = {
         type: "object",
         ...Object.entries(def.shape()).reduce((acc, [propName, propDef]) => {
             if (propDef === undefined || propDef._def === undefined)
                 return acc;
+            let propOptional = propDef.isOptional();
+            if (propOptional && forceOptionalIntoNullable) {
+                if (propDef instanceof zod_1.ZodOptional) {
+                    propDef = propDef._def.innerType;
+                }
+                if (!propDef.isNullable()) {
+                    propDef = propDef.nullable();
+                }
+                propOptional = false;
+            }
             const parsedDef = (0, parseDef_js_1.parseDef)(propDef._def, {
                 ...refs,
                 currentPath: [...refs.currentPath, "properties", propName],
@@ -50526,9 +53141,7 @@ function parseObjectDef(def, refs) {
                 return acc;
             return {
                 properties: { ...acc.properties, [propName]: parsedDef },
-                required: propDef.isOptional()
-                    ? acc.required
-                    : [...acc.required, propName],
+                required: propOptional ? acc.required : [...acc.required, propName],
             };
         }, { properties: {}, required: [] }),
         additionalProperties: decideAdditionalProperties(def, refs),
@@ -50648,7 +53261,11 @@ exports.parseRecordDef = void 0;
 const zod_1 = __nccwpck_require__(4809);
 const parseDef_js_1 = __nccwpck_require__(1607);
 const string_js_1 = __nccwpck_require__(3481);
+const branded_js_1 = __nccwpck_require__(3406);
 function parseRecordDef(def, refs) {
+    if (refs.target === "openAi") {
+        console.warn("Warning: OpenAI may not support records in schemas! Try an array of key-value pairs instead.");
+    }
     if (refs.target === "openApi3" &&
         def.keyType?._def.typeName === zod_1.ZodFirstPartyTypeKind.ZodEnum) {
         return {
@@ -50676,7 +53293,7 @@ function parseRecordDef(def, refs) {
     }
     if (def.keyType?._def.typeName === zod_1.ZodFirstPartyTypeKind.ZodString &&
         def.keyType._def.checks?.length) {
-        const keyType = Object.entries((0, string_js_1.parseStringDef)(def.keyType._def, refs)).reduce((acc, [key, value]) => (key === "type" ? acc : { ...acc, [key]: value }), {});
+        const { type, ...keyType } = (0, string_js_1.parseStringDef)(def.keyType._def, refs);
         return {
             ...schema,
             propertyNames: keyType,
@@ -50688,6 +53305,15 @@ function parseRecordDef(def, refs) {
             propertyNames: {
                 enum: def.keyType._def.values,
             },
+        };
+    }
+    else if (def.keyType?._def.typeName === zod_1.ZodFirstPartyTypeKind.ZodBranded &&
+        def.keyType._def.type._def.typeName === zod_1.ZodFirstPartyTypeKind.ZodString &&
+        def.keyType._def.type._def.checks?.length) {
+        const { type, ...keyType } = (0, branded_js_1.parseBrandedDef)(def.keyType._def, refs);
+        return {
+            ...schema,
+            propertyNames: keyType,
         };
     }
     return schema;
@@ -50737,7 +53363,7 @@ exports.parseSetDef = parseSetDef;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.parseStringDef = exports.zodPatterns = void 0;
 const errorMessages_js_1 = __nccwpck_require__(2691);
-let emojiRegex;
+let emojiRegex = undefined;
 /**
  * Generated from the regular expressions found here as of 2024-05-22:
  * https://github.com/colinhacks/zod/blob/master/src/types.ts.
@@ -50780,22 +53406,21 @@ exports.zodPatterns = {
      * Unused
      */
     ipv4: /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/,
+    ipv4Cidr: /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/(3[0-2]|[12]?[0-9])$/,
     /**
      * Unused
      */
     ipv6: /^(([a-f0-9]{1,4}:){7}|::([a-f0-9]{1,4}:){0,6}|([a-f0-9]{1,4}:){1}:([a-f0-9]{1,4}:){0,5}|([a-f0-9]{1,4}:){2}:([a-f0-9]{1,4}:){0,4}|([a-f0-9]{1,4}:){3}:([a-f0-9]{1,4}:){0,3}|([a-f0-9]{1,4}:){4}:([a-f0-9]{1,4}:){0,2}|([a-f0-9]{1,4}:){5}:([a-f0-9]{1,4}:){0,1})([a-f0-9]{1,4}|(((25[0-5])|(2[0-4][0-9])|(1[0-9]{2})|([0-9]{1,2}))\.){3}((25[0-5])|(2[0-4][0-9])|(1[0-9]{2})|([0-9]{1,2})))$/,
+    ipv6Cidr: /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))\/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$/,
     base64: /^([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/,
+    base64url: /^([0-9a-zA-Z-_]{4})*(([0-9a-zA-Z-_]{2}(==)?)|([0-9a-zA-Z-_]{3}(=)?))?$/,
     nanoid: /^[a-zA-Z0-9_-]{21}$/,
+    jwt: /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]*$/,
 };
 function parseStringDef(def, refs) {
     const res = {
         type: "string",
     };
-    function processPattern(value) {
-        return refs.patternStrategy === "escape"
-            ? escapeNonAlphaNumeric(value)
-            : value;
-    }
     if (def.checks) {
         for (const check of def.checks) {
             switch (check.kind) {
@@ -50838,10 +53463,10 @@ function parseStringDef(def, refs) {
                     addPattern(res, exports.zodPatterns.cuid2, check.message, refs);
                     break;
                 case "startsWith":
-                    addPattern(res, RegExp(`^${processPattern(check.value)}`), check.message, refs);
+                    addPattern(res, RegExp(`^${escapeLiteralCheckValue(check.value, refs)}`), check.message, refs);
                     break;
                 case "endsWith":
-                    addPattern(res, RegExp(`${processPattern(check.value)}$`), check.message, refs);
+                    addPattern(res, RegExp(`${escapeLiteralCheckValue(check.value, refs)}$`), check.message, refs);
                     break;
                 case "datetime":
                     addFormat(res, "date-time", check.message, refs);
@@ -50864,7 +53489,7 @@ function parseStringDef(def, refs) {
                         : check.value, check.message, refs);
                     break;
                 case "includes": {
-                    addPattern(res, RegExp(processPattern(check.value)), check.message, refs);
+                    addPattern(res, RegExp(escapeLiteralCheckValue(check.value, refs)), check.message, refs);
                     break;
                 }
                 case "ip": {
@@ -50876,8 +53501,23 @@ function parseStringDef(def, refs) {
                     }
                     break;
                 }
+                case "base64url":
+                    addPattern(res, exports.zodPatterns.base64url, check.message, refs);
+                    break;
+                case "jwt":
+                    addPattern(res, exports.zodPatterns.jwt, check.message, refs);
+                    break;
+                case "cidr": {
+                    if (check.version !== "v6") {
+                        addPattern(res, exports.zodPatterns.ipv4Cidr, check.message, refs);
+                    }
+                    if (check.version !== "v4") {
+                        addPattern(res, exports.zodPatterns.ipv6Cidr, check.message, refs);
+                    }
+                    break;
+                }
                 case "emoji":
-                    addPattern(res, exports.zodPatterns.emoji, check.message, refs);
+                    addPattern(res, exports.zodPatterns.emoji(), check.message, refs);
                     break;
                 case "ulid": {
                     addPattern(res, exports.zodPatterns.ulid, check.message, refs);
@@ -50908,6 +53548,7 @@ function parseStringDef(def, refs) {
                 case "trim":
                     break;
                 default:
+                    /* c8 ignore next */
                     ((_) => { })(check);
             }
         }
@@ -50915,10 +53556,24 @@ function parseStringDef(def, refs) {
     return res;
 }
 exports.parseStringDef = parseStringDef;
-const escapeNonAlphaNumeric = (value) => Array.from(value)
-    .map((c) => (/[a-zA-Z0-9]/.test(c) ? c : `\\${c}`))
-    .join("");
-const addFormat = (schema, value, message, refs) => {
+function escapeLiteralCheckValue(literal, refs) {
+    return refs.patternStrategy === "escape"
+        ? escapeNonAlphaNumeric(literal)
+        : literal;
+}
+const ALPHA_NUMERIC = new Set("ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz0123456789");
+function escapeNonAlphaNumeric(source) {
+    let result = "";
+    for (let i = 0; i < source.length; i++) {
+        if (!ALPHA_NUMERIC.has(source[i])) {
+            result += "\\";
+        }
+        result += source[i];
+    }
+    return result;
+}
+// Adds a "format" keyword to the schema. If a format exists, both formats will be joined in an allOf-node, along with subsequent ones.
+function addFormat(schema, value, message, refs) {
     if (schema.format || schema.anyOf?.some((x) => x.format)) {
         if (!schema.anyOf) {
             schema.anyOf = [];
@@ -50948,8 +53603,9 @@ const addFormat = (schema, value, message, refs) => {
     else {
         (0, errorMessages_js_1.setResponseValueAndErrors)(schema, "format", value, message, refs);
     }
-};
-const addPattern = (schema, regex, message, refs) => {
+}
+// Adds a "pattern" keyword to the schema. If a pattern exists, both patterns will be joined in an allOf-node, along with subsequent ones.
+function addPattern(schema, regex, message, refs) {
     if (schema.pattern || schema.allOf?.some((x) => x.pattern)) {
         if (!schema.allOf) {
             schema.allOf = [];
@@ -50971,20 +53627,20 @@ const addPattern = (schema, regex, message, refs) => {
             }
         }
         schema.allOf.push({
-            pattern: processRegExp(regex, refs),
+            pattern: stringifyRegExpWithFlags(regex, refs),
             ...(message &&
                 refs.errorMessages && { errorMessage: { pattern: message } }),
         });
     }
     else {
-        (0, errorMessages_js_1.setResponseValueAndErrors)(schema, "pattern", processRegExp(regex, refs), message, refs);
+        (0, errorMessages_js_1.setResponseValueAndErrors)(schema, "pattern", stringifyRegExpWithFlags(regex, refs), message, refs);
     }
-};
+}
 // Mutate z.string.regex() in a best attempt to accommodate for regex flags when applyRegexFlags is true
-const processRegExp = (regexOrFunction, refs) => {
-    const regex = typeof regexOrFunction === "function" ? regexOrFunction() : regexOrFunction;
-    if (!refs.applyRegexFlags || !regex.flags)
+function stringifyRegExpWithFlags(regex, refs) {
+    if (!refs.applyRegexFlags || !regex.flags) {
         return regex.source;
+    }
     // Currently handled flags
     const flags = {
         i: regex.flags.includes("i"),
@@ -51052,14 +53708,14 @@ const processRegExp = (regexOrFunction, refs) => {
         }
     }
     try {
-        const regexTest = new RegExp(pattern);
+        new RegExp(pattern);
     }
     catch {
         console.warn(`Could not convert regex pattern at ${refs.currentPath.join("/")} to a flag-independent form! Falling back to the flag-ignorant source`);
         return regex.source;
     }
     return pattern;
-};
+}
 
 
 /***/ }),
@@ -51292,8 +53948,15 @@ const zodToJsonSchema = (schema, options) => {
     if (refs.target === "jsonSchema7") {
         combined.$schema = "http://json-schema.org/draft-07/schema#";
     }
-    else if (refs.target === "jsonSchema2019-09") {
+    else if (refs.target === "jsonSchema2019-09" || refs.target === "openAi") {
         combined.$schema = "https://json-schema.org/draft/2019-09/schema#";
+    }
+    if (refs.target === "openAi" &&
+        ("anyOf" in combined ||
+            "oneOf" in combined ||
+            "allOf" in combined ||
+            ("type" in combined && Array.isArray(combined.type)))) {
+        console.warn("Warning: OpenAI may not support schemas with unions as roots! Try wrapping it in an object property.");
     }
     return combined;
 };
@@ -51302,7 +53965,7 @@ exports.zodToJsonSchema = zodToJsonSchema;
 
 /***/ }),
 
-/***/ 9107:
+/***/ 1945:
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -51437,7 +54100,7 @@ exports.createParser = createParser;
 
 /***/ }),
 
-/***/ 9201:
+/***/ 4615:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -51446,7 +54109,7 @@ exports.createParser = createParser;
 Object.defineProperty(exports, "__esModule", ({
   value: true
 }));
-var index = __nccwpck_require__(9107);
+var index = __nccwpck_require__(1945);
 class EventSourceParserStream extends TransformStream {
   constructor() {
     let parser;
@@ -51470,29 +54133,351 @@ exports.EventSourceParserStream = EventSourceParserStream;
 
 /***/ }),
 
+/***/ 9273:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", ({
+  value: true
+}));
+function createParser(onParse) {
+  let isFirstChunk;
+  let buffer;
+  let startingPosition;
+  let startingFieldLength;
+  let eventId;
+  let eventName;
+  let data;
+  reset();
+  return {
+    feed,
+    reset
+  };
+  function reset() {
+    isFirstChunk = true;
+    buffer = "";
+    startingPosition = 0;
+    startingFieldLength = -1;
+    eventId = void 0;
+    eventName = void 0;
+    data = "";
+  }
+  function feed(chunk) {
+    buffer = buffer ? buffer + chunk : chunk;
+    if (isFirstChunk && hasBom(buffer)) {
+      buffer = buffer.slice(BOM.length);
+    }
+    isFirstChunk = false;
+    const length = buffer.length;
+    let position = 0;
+    let discardTrailingNewline = false;
+    while (position < length) {
+      if (discardTrailingNewline) {
+        if (buffer[position] === "\n") {
+          ++position;
+        }
+        discardTrailingNewline = false;
+      }
+      let lineLength = -1;
+      let fieldLength = startingFieldLength;
+      let character;
+      for (let index = startingPosition; lineLength < 0 && index < length; ++index) {
+        character = buffer[index];
+        if (character === ":" && fieldLength < 0) {
+          fieldLength = index - position;
+        } else if (character === "\r") {
+          discardTrailingNewline = true;
+          lineLength = index - position;
+        } else if (character === "\n") {
+          lineLength = index - position;
+        }
+      }
+      if (lineLength < 0) {
+        startingPosition = length - position;
+        startingFieldLength = fieldLength;
+        break;
+      } else {
+        startingPosition = 0;
+        startingFieldLength = -1;
+      }
+      parseEventStreamLine(buffer, position, fieldLength, lineLength);
+      position += lineLength + 1;
+    }
+    if (position === length) {
+      buffer = "";
+    } else if (position > 0) {
+      buffer = buffer.slice(position);
+    }
+  }
+  function parseEventStreamLine(lineBuffer, index, fieldLength, lineLength) {
+    if (lineLength === 0) {
+      if (data.length > 0) {
+        onParse({
+          type: "event",
+          id: eventId,
+          event: eventName || void 0,
+          data: data.slice(0, -1)
+          // remove trailing newline
+        });
+
+        data = "";
+        eventId = void 0;
+      }
+      eventName = void 0;
+      return;
+    }
+    const noValue = fieldLength < 0;
+    const field = lineBuffer.slice(index, index + (noValue ? lineLength : fieldLength));
+    let step = 0;
+    if (noValue) {
+      step = lineLength;
+    } else if (lineBuffer[index + fieldLength + 1] === " ") {
+      step = fieldLength + 2;
+    } else {
+      step = fieldLength + 1;
+    }
+    const position = index + step;
+    const valueLength = lineLength - step;
+    const value = lineBuffer.slice(position, position + valueLength).toString();
+    if (field === "data") {
+      data += value ? "".concat(value, "\n") : "\n";
+    } else if (field === "event") {
+      eventName = value;
+    } else if (field === "id" && !value.includes("\0")) {
+      eventId = value;
+    } else if (field === "retry") {
+      const retry = parseInt(value, 10);
+      if (!Number.isNaN(retry)) {
+        onParse({
+          type: "reconnect-interval",
+          value: retry
+        });
+      }
+    }
+  }
+}
+const BOM = [239, 187, 191];
+function hasBom(buffer) {
+  return BOM.every((charCode, index) => buffer.charCodeAt(index) === charCode);
+}
+exports.createParser = createParser;
+//# sourceMappingURL=index.cjs.map
+
+
+/***/ }),
+
+/***/ 2343:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", ({
+  value: true
+}));
+var index = __nccwpck_require__(9273);
+class EventSourceParserStream extends TransformStream {
+  constructor() {
+    let parser;
+    super({
+      start(controller) {
+        parser = index.createParser(event => {
+          if (event.type === "event") {
+            controller.enqueue(event);
+          }
+        });
+      },
+      transform(chunk) {
+        parser.feed(chunk);
+      }
+    });
+  }
+}
+exports.EventSourceParserStream = EventSourceParserStream;
+//# sourceMappingURL=stream.cjs.map
+
+
+/***/ }),
+
+/***/ 9107:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: !0 }));
+var __defProp = Object.defineProperty, __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: !0, configurable: !0, writable: !0, value }) : obj[key] = value, __publicField = (obj, key, value) => __defNormalProp(obj, typeof key != "symbol" ? key + "" : key, value);
+class ParseError extends Error {
+  constructor(message, options) {
+    super(message), __publicField(this, "type"), __publicField(this, "field"), __publicField(this, "value"), __publicField(this, "line"), this.name = "ParseError", this.type = options.type, this.field = options.field, this.value = options.value, this.line = options.line;
+  }
+}
+function noop(_arg) {
+}
+function createParser(callbacks) {
+  const { onEvent = noop, onError = noop, onRetry = noop, onComment } = callbacks;
+  let incompleteLine = "", isFirstChunk = !0, id, data = "", eventType = "";
+  function feed(newChunk) {
+    const chunk = isFirstChunk ? newChunk.replace(/^\xEF\xBB\xBF/, "") : newChunk, [complete, incomplete] = splitLines(`${incompleteLine}${chunk}`);
+    for (const line of complete)
+      parseLine(line);
+    incompleteLine = incomplete, isFirstChunk = !1;
+  }
+  function parseLine(line) {
+    if (line === "") {
+      dispatchEvent();
+      return;
+    }
+    if (line.startsWith(":")) {
+      onComment && onComment(line.slice(line.startsWith(": ") ? 2 : 1));
+      return;
+    }
+    const fieldSeparatorIndex = line.indexOf(":");
+    if (fieldSeparatorIndex !== -1) {
+      const field = line.slice(0, fieldSeparatorIndex), offset = line[fieldSeparatorIndex + 1] === " " ? 2 : 1, value = line.slice(fieldSeparatorIndex + offset);
+      processField(field, value, line);
+      return;
+    }
+    processField(line, "", line);
+  }
+  function processField(field, value, line) {
+    switch (field) {
+      case "event":
+        eventType = value;
+        break;
+      case "data":
+        data = `${data}${value}
+`;
+        break;
+      case "id":
+        id = value.includes("\0") ? void 0 : value;
+        break;
+      case "retry":
+        /^\d+$/.test(value) ? onRetry(parseInt(value, 10)) : onError(
+          new ParseError(`Invalid \`retry\` value: "${value}"`, {
+            type: "invalid-retry",
+            value,
+            line
+          })
+        );
+        break;
+      default:
+        onError(
+          new ParseError(
+            `Unknown field "${field.length > 20 ? `${field.slice(0, 20)}\u2026` : field}"`,
+            { type: "unknown-field", field, value, line }
+          )
+        );
+        break;
+    }
+  }
+  function dispatchEvent() {
+    data.length > 0 && onEvent({
+      id,
+      event: eventType || void 0,
+      // If the data buffer's last character is a U+000A LINE FEED (LF) character,
+      // then remove the last character from the data buffer.
+      data: data.endsWith(`
+`) ? data.slice(0, -1) : data
+    }), id = void 0, data = "", eventType = "";
+  }
+  function reset(options = {}) {
+    incompleteLine && options.consume && parseLine(incompleteLine), id = void 0, data = "", eventType = "", incompleteLine = "";
+  }
+  return { feed, reset };
+}
+function splitLines(chunk) {
+  const lines = [];
+  let incompleteLine = "";
+  const totalLength = chunk.length;
+  for (let i = 0; i < totalLength; i++) {
+    const char = chunk[i];
+    char === "\r" && chunk[i + 1] === `
+` ? (lines.push(incompleteLine), incompleteLine = "", i++) : char === "\r" || char === `
+` ? (lines.push(incompleteLine), incompleteLine = "") : incompleteLine += char;
+  }
+  return [lines, incompleteLine];
+}
+exports.ParseError = ParseError;
+exports.createParser = createParser;
+//# sourceMappingURL=index.cjs.map
+
+
+/***/ }),
+
+/***/ 9201:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: !0 }));
+var index = __nccwpck_require__(9107);
+class EventSourceParserStream extends TransformStream {
+  constructor({ onError, onRetry, onComment } = {}) {
+    let parser;
+    super({
+      start(controller) {
+        parser = index.createParser({
+          onEvent: (event) => {
+            controller.enqueue(event);
+          },
+          onError(error) {
+            onError === "terminate" ? controller.error(error) : typeof onError == "function" && onError(error);
+          },
+          onRetry,
+          onComment
+        });
+      },
+      transform(chunk) {
+        parser.feed(chunk);
+      }
+    });
+  }
+}
+exports.ParseError = index.ParseError;
+exports.EventSourceParserStream = EventSourceParserStream;
+//# sourceMappingURL=stream.cjs.map
+
+
+/***/ }),
+
 /***/ 4910:
 /***/ ((module) => {
 
+// This alphabet uses `A-Za-z0-9_-` symbols.
+// The order of characters is optimized for better gzip and brotli compression.
+// References to the same file (works both for gzip and brotli):
+// `'use`, `andom`, and `rict'`
+// References to the brotli default dictionary:
+// `-26T`, `1983`, `40px`, `75px`, `bush`, `jack`, `mind`, `very`, and `wolf`
 let urlAlphabet =
   'useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict'
+
 let customAlphabet = (alphabet, defaultSize = 21) => {
   return (size = defaultSize) => {
     let id = ''
-    let i = size
+    // A compact alternative for `for (var i = 0; i < step; i++)`.
+    let i = size | 0
     while (i--) {
+      // `| 0` is more compact and faster than `Math.floor()`.
       id += alphabet[(Math.random() * alphabet.length) | 0]
     }
     return id
   }
 }
+
 let nanoid = (size = 21) => {
   let id = ''
-  let i = size
+  // A compact alternative for `for (var i = 0; i < step; i++)`.
+  let i = size | 0
   while (i--) {
+    // `| 0` is more compact and faster than `Math.floor()`.
     id += urlAlphabet[(Math.random() * 64) | 0]
   }
   return id
 }
+
 module.exports = { nanoid, customAlphabet }
 
 
