@@ -7,7 +7,9 @@
     "dev": "tsnd --respawn src/index.ts",
     "build": "ncc build src/index.ts",
     "act": "gh extension exec act -P ubuntu-latest=node:20-buster-slim pull_request",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "jest src",
+    "test:watch": "jest src"
   },
   "author": "SAK74",
   "license": "ISC",
@@ -24,8 +26,11 @@
     "@commitlint/config-conventional": "^19.5.0",
     "@commitlint/format": "^19.5.0",
     "@commitlint/types": "^19.5.0",
+    "@types/jest": "^29.5.14",
     "@vercel/ncc": "^0.38.2",
     "husky": "^9.1.6",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.6.3"
   },

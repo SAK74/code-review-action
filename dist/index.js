@@ -50250,6 +50250,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.main = main;
 const addComment_1 = __nccwpck_require__(4739);
 const aiClient_1 = __importDefault(__nccwpck_require__(5366));
 const getDiff_2_1 = __nccwpck_require__(13);
@@ -50257,6 +50258,11 @@ const core_1 = __nccwpck_require__(7484);
 const github_1 = __nccwpck_require__(3228);
 const addDecription_1 = __nccwpck_require__(9345);
 const diffPath = "./diff.txt";
+/**
+ * The main function that performs the code review actions.
+ * It checks if comments or descriptions should be added based on the input parameters,
+ * generates a diff file, and adds comments or descriptions accordingly.
+ */
 function main() {
     return __awaiter(this, void 0, void 0, function* () {
         var _a, _b;

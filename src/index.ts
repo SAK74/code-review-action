@@ -7,7 +7,12 @@ import { addDescr } from "./addDecription";
 
 const diffPath = "./diff.txt";
 
-async function main() {
+/**
+ * The main function that performs the code review actions.
+ * It checks if comments or descriptions should be added based on the input parameters,
+ * generates a diff file, and adds comments or descriptions accordingly.
+ */
+export async function main() {
   try {
     const shouldComment = getBooleanInput("with-comment");
 
